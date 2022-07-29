@@ -46,10 +46,12 @@ private:
       
     }
   
-    void cleanup() { // clean up resources by destroying window and terminating GLFW
-      glfwDestroyWindow(window);
-      
-      glfwTerminate();
+ void cleanup() { // clean up resources by destroying window and terminating GLFW
+  vkDestroyInstance(instance, nullptr); 
+  
+  glfwDestroyWindow(window);
+  
+  glfwTerminate();
       
     }
 };
@@ -87,8 +89,28 @@ void createInstance() { // Create an instance by filling in a struct with some i
     throw std::runtime_error("failed to create instance!");
   }
   
+ // Checking for extension support
+ // Allocate an array to hold  the extension details. Request the number of extensions by leaving the
+ // Latter parameter empty
+ uint32_t extensionCount = 0;
+ vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+ 
+ // Allocate an array to hold the extension details (#include <vector>)
+ std::vector<VkExtensionProperties> extensions(extensionCount);
+ 
+ // Query the extension details
+ vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data());
+ 
+ // Each VkExtensionProperties struct contains the name and version of an extensions.
+ // List them with a simple loop
+ std::cout << "Available extensions:\n";
+ for (const auto& extension : extensions) {
+  std::cout << '\t' << extension.extensionName << '\n';
+ }
   
 }
+
+
 
 int main() {
   HelloTriangleApplication app;
