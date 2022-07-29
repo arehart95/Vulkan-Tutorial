@@ -4,6 +4,7 @@
 #include <iostream> // for reporting and propogating errors
 #include <stdexcept>
 #include <cstdlib> // provides EXIT_SUCCESS and EXIT_FAILURE macros
+#include <vector>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600; // values for window dimensions
