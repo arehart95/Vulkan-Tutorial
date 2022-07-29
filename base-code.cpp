@@ -8,13 +8,14 @@
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600; // values for window dimensions
 
+// Application is wrapped into a class
 class HelloTriangleApplication {
 public:
   void run() {
     initWindow(); // initialize GLFW
-    initVulkan();
-    mainLoop();
-    cleanup();
+    initVulkan(); // initialize Vulkan
+    mainLoop(); // Keep window open until closed 
+    cleanup(); // clean up resources
     }
   
 private:
