@@ -21,36 +21,6 @@ const std::vector<const char*> validationLayers = {
   const bool enableValidationLayers = true;
 #endif
 
-// Add a new function called checkValidationLayerSupport that
-// checks if all requested layers are available. 
-bool checkValidationLayerSupport() {
-  uint32_t layerCount;
-  // List all available layers
-  vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-  
-  std::vector<VkLayerProperties> availableLayers(layerCount);
-  vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-  
-  return false;
-}
-
-// Check if all the layers in validationLayers exist in the availableLayers list
-for (const char* layerName : validationLayers) {
-  bool layerFound = false;
-  
-  for (const auto& layerProperties : availableLayers) {
-    if (strcmp(layerName, layerProperties.layerName) == 0) {
-      layerFound = true;
-      break;
-    }
-  }
-  
-  if (!layerFound) {
-    return false;
-  }
-}
-
-return true;
 
 // Application is wrapped into a class
 class HelloTriangleApplication {
@@ -98,7 +68,6 @@ private:
   glfwTerminate();
       
     }
-};
 
 void createInstance() { // Create an instance by filling in a struct with some info about the application
   // Use validation layers function
@@ -129,11 +98,52 @@ void createInstance() { // Create an instance by filling in a struct with some i
   // If the check was successful there should not be an error. 
   
   // Global extensions to interface with the window system
+ std::vector<const char*> getRequiredExtensions() { 
   uint32_t glfwExtensionCount = 0;
   const char** glfwExtensions;
   
   // Return the needed extensions and pass to the struct
   glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+  
+  std::vector <const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+  
+  if (enableValidationLayers) {
+   extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
+  
+  return extensions;
+ }
+ 
+ // Add a new function called checkValidationLayerSupport that
+// checks if all requested layers are available. 
+bool checkValidationLayerSupport() {
+  uint32_t layerCount;
+  // List all available layers
+  vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+  
+  std::vector<VkLayerProperties> availableLayers(layerCount);
+  vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+  
+  return false;
+}
+
+// Check if all the layers in validationLayers exist in the availableLayers list
+for (const char* layerName : validationLayers) {
+  bool layerFound = false;
+  
+  for (const auto& layerProperties : availableLayers) {
+    if (strcmp(layerName, layerProperties.layerName) == 0) {
+      layerFound = true;
+      break;
+    }
+  }
+  
+  if (!layerFound) {
+    return false;
+  }
+}
+
+return true;
   
   createInfo.enabledExtensionCount = glfwExtensionCount;
   createInfo.ppEnabledExtensionNames = glfwExtension;
@@ -167,7 +177,7 @@ void createInstance() { // Create an instance by filling in a struct with some i
   std::cout << '\t' << extension.extensionName << '\n';
  }
   
-}
+};
 
 
 
