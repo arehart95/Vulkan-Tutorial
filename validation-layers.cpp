@@ -95,6 +95,38 @@ void createInstance() { // Create an instance by filling in a struct with some i
     createInfo.enabledLayerCount = 0;
   }
   
+  createInfo.enabledExtensionCount = glfwExtensionCount;
+  createInfo.ppEnabledExtensionNames = glfwExtension;
+  
+  // Determine the global validation layers to enable
+  createInfo.enabledLayerCount = 0;
+  
+  // Issue the vkCreateInstance call
+  VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
+  
+  if(vkCreateInstance(&createInfo, nullptr, &instance != VK_SUCCESS)) {
+    throw std::runtime_error("failed to create instance!");
+  }
+  
+ // Checking for extension support
+ // Allocate an array to hold  the extension details. Request the number of extensions by leaving the
+ // Latter parameter empty
+ uint32_t extensionCount = 0;
+ vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+ 
+ // Allocate an array to hold the extension details (#include <vector>)
+ std::vector<VkExtensionProperties> extensions(extensionCount);
+ 
+ // Query the extension details
+ vkEnumerateInstanceExtensionProperties(nullptr, &glfwextensionCount, extensions.data());
+ 
+ // Each VkExtensionProperties struct contains the name and version of an extensions.
+ // List them with a simple loop
+ std::cout << "Available extensions:\n";
+ for (const auto& extension : extensions) {
+  std::cout << '\t' << extension.extensionName << '\n';
+ }
+ 
   // If the check was successful there should not be an error. 
   
   // Global extensions to interface with the window system
