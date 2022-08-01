@@ -63,6 +63,11 @@ private:
 
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
+// The logical device interfaces with the physical device. 
+// Add a new class member to store the logical device handle in:
+	VkDevice device;
+	
+	VkQueue graphicsQueue;
 
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 
@@ -82,6 +87,8 @@ private:
       // in the system that supports the features we need. 
       // Add a function called pickPhysicalDevice and add a call to it in the initVulkan function
         pickPhysicalDevice();
+	// Add a createLogicalDevice function called from initVulkan
+		createLogicalDevice();
     }
 
     void mainLoop() {
@@ -96,6 +103,7 @@ private:
         }
 
         vkDestroyInstance(instance, nullptr);
+		vkDestroyDevice(device, nullptr);
 
         glfwDestroyWindow(window);
 
@@ -189,6 +197,61 @@ private:
         }
     }
   
+	void createLogicalDevice() {
+		// Creation of a logical device involves specifying a bunch of details in structs.
+		// The first one will be VkDeviceQueueCreateInfo, and says the number of queues we want
+		// for a single queue family. 
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		
+		VkDeviceQueueCreateInfo queueCreateInfo{};
+		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
+		queueCreateInfo.queueCount = 1;
+		
+		// Vulkan lets you assign priorities to queues to influence the scheduling of command
+		// buffer execution using floating point numbers between 0.0 and 1.0. This is required
+		// even if there is only a single queue.
+		float queuePriority = 1.0f;
+		queueCreateInfo.pQueuePriorities = &queuePriority;
+		
+		// Next specify the set of device features. They are queries support for with
+		// vkGetPhysicalDeviceFeatures, like geometry shaders. Right now we do not need
+		// anything special, so we can simply define it and leave everything to VK_FALSE.
+		
+		VkPhysicalDeviceFeatures deviceFeatures{};
+		
+		// Now we fill in the main VkDeviceCreateInfo structure
+		
+		VkDeviceCreateInfo createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		
+		// Add pointers to the queue creation info and f\device features structs
+		createInfo.pQueueCreateInfos = &queueCreateInfo;
+		createInfo.queueCreateInfoCount = 1;
+		createInfo.pEnabledFeatures = &deviceFeatures;
+		
+		// We also need to specify extensions and validation layers. These are device specific.
+		// For example, some Vulkan devices do not provide support for the swap chain. 
+		
+		createInfo.enabledExtensionCount = 0;
+		
+		if (enableValidationLayers) {
+			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+			createInfo.ppEnabledLayerNames = validationLayers.data();
+		} else {
+			createInfo.enabledLayerCount = 0;
+		}
+		// We don't need any device specific extensions now
+		// Ready to instantiate the logical device with a call to the vkCreateDevice function
+		if(vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create a logical device!");
+		}
+		// The parameters are the phys. device, the queue and usage info, the optional allocation
+		// callbacks pointer and a pointer to a variable to store the logical device handle.
+	
+		vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+	}
+	
     // Check if they are suitable for the operations. 
     bool isDeviceSuitable(VkPhysicalDevice device) {
         QueueFamilyIndices indices = findQueueFamilies(device);
