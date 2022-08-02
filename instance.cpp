@@ -17,7 +17,7 @@ public:
         initVulkan(); // initialize Vulkan
         mainLoop(); // Keep window open until closed 
         cleanup(); // clean up resources
-    }
+	}
     
 private:
     VkInstance instance; // data member to hold the handle to the instance
