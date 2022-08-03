@@ -13,9 +13,9 @@
 #include <stdexcept>
 #include <vector>
 #include <cstring>
-#include <cstdint>
-#include <limits>
-#include <algorithm>
+#include <cstdint> // necessary for uint32_t
+#include <limits> // necessary for std::numeric_limits
+#include <algorithm> // necessary for std::clamp
 #include <cstdlib>
 #include <optional>
 #include <set>
@@ -280,18 +280,134 @@ private:
         vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 	}
 	
+	// We need to write functions to determine the settings for the best possible swap chain. There are three
+	// settings to determine:
+	// 1. Surface format (color depth)
+	// 2. Presentation mode (conditions for swapping images to the screen)
+	// 3. Swap extent (resolution of images in swap chain)
+	VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats) {
+		
+		for (const auto& availableFormat : availableFormats) { 
+			if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+				return availableFormat;
+			}
+		}		
+	/* Each VkSurfaceFormatKHR entry contains a format and a colorSpace member. The format member specifies the
+	color channel and types. For example, VK_FORMAT_B8G8R8A8_SRGB means that we store the B, G, R, and alpha 
+	channels in that order with an 8 bit unsigned integer for a total of 32 bits per pixel. The colorSpace member
+	indicates if the SRGB color space is supported or not using the VK_COLOR_SPACE_SRGB_NONLINEAR_KHR flag.
+	
+	This color space will use SRGB because it is accurate and pretty much standard. We need an SRGB color format
+	and a common one to use is VK_FORMAT_B8G8R8A8_SRGB.	*/
+		
+	/* Presentation Mode: Arguably the most important setting for the swap chain because it represents the
+	actual conditions for showing images to the screen. There are four possible modes in Vulkan:
+		1. VK_PRESENT_MODE_IMMEDIATE_KHR:
+			Images submitted by your application are transferred to the screen right away which may end up
+			tearing.
+		2. VK_PRESENT_MODE_FIFO_KHR:
+			The swap chain is a queue where the display takes an image from the front of the queue when the
+			display is refreshed and the program inserts rendered images at the back of the queue. If the 
+			queue is full then the program has to wait. The moment the display is refreshe is called the
+			vertical blank.
+		3. VK_PRESENT_MODE_FIFO_RELAXED_KHR:
+			Instead of waiting for the next vertical blank, the image is transferred right away which may
+			result in tearing.
+		4. VK_PRESENT_MODE_MAILBOX_KHR:
+			A variation of the second mode. Instead of blocking the application when the queue is full,
+			the images that are queued are simply replaced with the newer ones. This mode can render frames
+			as fast as possible while avoiding tearing, resulting in fewer latency issues. This is also called
+			triple buffering. 
+		
+		Only VK_PRESENT_MODE_FIFO_KHR is guaranteed to be available, so we have to write a function that looks
+		for the best mode that is available: */
+		
+	VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR>& availablePresentModes) {
+		for (const auto& availablePresentMode : availablePresentModes) {
+			if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+				return availablePresentMode; 
+			}
+		}
+		return VK_PRESENT_MODE_FIFO_KHR;
+	}
+	
+	/* Swap Extent: The swap extent is the resolution of the swap chain images and is almost always exactly
+	equal to the resolution of the window that we're drawing to in pixels. The range of the possible resolutions
+	is defined in the VkSurfaceCapabilities structure. Vulkan tells us to match the resolution of the window
+	by setting the width and height in the currentExtent member. However, some window managers allow us to 
+	differ here, and this is indicated by setting the width and height in currentExtent to a special value:
+	the maxmium value of uint32_t. We'll pick the resolution that best matches the window within the 
+	minImageExtent and maxImageExtent bounds but we have to specify the resolution in the correct unit. 
+	
+	GLFW uses two units when measuring size: pixels and screen coordinates. The resolution we specified with
+	{WIDTH, HEIGHT} is measured in screen coordinates, but Vulkan works in pixels, so the swap chain must be
+	specified in pixels as well. When using a high DPI display like Apple's Retina display, the screen
+	coordinates don't correspond to pixels. Due to the higher pixel density, the resolution of the window
+	in pixels will be larger than the resolution in screen coordinates. So if Vullkan doesn't fix the swap
+	extent, the original window values can't be used. Instead, we have to use glfwGetFramebufferSize to query
+	 the resolution of the window in pixels before matching it against the min and max image extent. */
+	
+	VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities) {
+		if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+			return capabilities.currentExtent;
+		} else {
+			int width, height;
+			glfwGetFramebufferSize(window, &width, &height);
+			
+			vkExtent2D actualExtent = {
+				static_cast<uint32_t>(width),
+				static_cast<uint32_t>(height)
+				};
+			
+			actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilites.maxImageExtent.width);
+			actualExtent.height = std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+			
+			return actualExtent;
+		}
+	}
+		
+	// The function that populates the struct
 	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
+		SwapChainSupportDetails details;
+		// This function takes the specified VkPhysicalDevice nd VkSurfaceKHR sruface into account
+		vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+		// Query the supported surface formats
+		uint32_t formatCount;
+		vkGetPhysicalDeviceSurfaceFormatKHR(device, surface, &formatCount, nullptr);
+		
+		if (formatCount != 0) {
+			details.formats.resize(formatCount);
+			vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
+		}
+		// Query the supported presentation modes
+		uint32_t presentModeCount;
+		vkGetPhysicalDeviceSurfacePresentModeKHR(device, surface, &presentModeCount, nullptr);
+		
+		if (presentModeCount != 0) {
+			details.presentModes.resize(presentModeCount);
+			vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
+		}
+		
+		return details;
+	}
 		
   
     bool isDeviceSuitable(VkPhysicalDevice device) {
         QueueFamilyIndices indices = findQueueFamilies(device);
 	// 2. Create a new function called checkDeviceExtensionSupport to be called from 
 	// isDeviceSuitable as an additional check:
-		bool extensionsSupported = checkDeviceExtensionSupport(device);
+	bool extensionsSupported = checkDeviceExtensionSupport(device);
+	    
+	bool swapChainAdequate = false;
+	if (extensionsSupported) {
+		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
+		swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
+	}
+	    	
 
-      	return indices.isComplete();
+      	return indices.isComplete() extensionsSupported && swapChainAdequate;
+    
     }
-	
 	bool  checkDeviceExtensionSupport(VkPhysicalDevice device) {
 		return true;
 	}
