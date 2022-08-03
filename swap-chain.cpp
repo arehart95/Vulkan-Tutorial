@@ -13,6 +13,9 @@
 #include <stdexcept>
 #include <vector>
 #include <cstring>
+#include <cstdint>
+#include <limits>
+#include <algorithm>
 #include <cstdlib>
 #include <optional>
 #include <set>
@@ -23,7 +26,7 @@ const uint32_t HEIGHT = 600;
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
 	};
-// Check if the swapchain extension is supported. Declare a list of required device extensions:
+// 1. Check if the swapchain extension is supported. Declare a list of required device extensions:
 const std::vector<const char*> deviceExtensions = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME
 	};
@@ -58,6 +61,20 @@ struct QueueFamilyIndices {
     bool isComplete() {
         return graphicsFamily.has_value();
     }
+};
+
+// Just checking for swapchain support is not sufficient because it might not be compatible with
+// our window surface. It also involves more settings than instance and device creation, so we
+// need to query for some more details:
+// 1. Basic surface capabilities (min/max number of images in swapchain, height and width of img
+// 2. Surface formats (pixel format, color space)
+// 3. Available presentation modes
+// Use a struct to pass these details around once they have been queried
+
+struct SwapChainSupportDetails {
+	VkSurfaceCapabilitiesKHR capabilities;
+	std::vector<VkSurfaceFormatKHR> formats;
+	std::vector<VkPresentModeKHR> presentMode;
 };
 
 class HelloTriangleApplication {
@@ -243,7 +260,9 @@ private:
 		createInfo.queueCreateInfoCount = 1;
 		createInfo.pEnabledFeatures = &deviceFeatures;
 		
-		createInfo.enabledExtensionCount = 0;
+		// 3. Enable the device extensions (VK_KHR_swapchain)
+		createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+		createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 		
 		if (enableValidationLayers) {
 			createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
@@ -261,6 +280,8 @@ private:
         vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 	}
 	
+	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
+		
   
     bool isDeviceSuitable(VkPhysicalDevice device) {
         QueueFamilyIndices indices = findQueueFamilies(device);
@@ -268,11 +289,28 @@ private:
 	// isDeviceSuitable as an additional check:
 		bool extensionsSupported = checkDeviceExtensionSupport(device);
 
-        return indices.isComplete();
+      	return indices.isComplete();
     }
 	
 	bool  checkDeviceExtensionSupport(VkPhysicalDevice device) {
 		return true;
+	}
+	
+	// This uses a set of strings to represent the unconfirmed required extensions. 
+	bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+		uint32_t extensionCount;
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+		
+		std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+		
+		std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
+		
+		for(const auto& extension : availableExtensions) {
+			requiredExtensions.erase(extension.extensionName);
+		}
+		
+		return requiredExtensions.empty();
 	}
 	
 
