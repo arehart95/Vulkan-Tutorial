@@ -99,7 +99,12 @@ private:
 	VkQueue graphicsQueue;
     VkQueue presentQueue;
 
-    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+	
+	VkSwapChainKHR swapChain;
+	std::vector<VkImage> swapChainImage;
+	VkFormat swapChainImageFormat;
+	VkExtent2D swapChainExtent;
 
     void initWindow() {
         glfwInit();
@@ -116,6 +121,7 @@ private:
         createSurface();
         pickPhysicalDevice();
 		createLogicalDevice();
+		createSwapChain(); // add to initVulkan after createLogicalDevice
     }
 
     void mainLoop() {
@@ -125,6 +131,7 @@ private:
     }
 
     void cleanup() {
+		vkDestroySwapchainKHR(device, swapChain, nullptr);
         vkDestroyDevice(device, nullptr);
         if (enableValidationLayers) {
             DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
@@ -280,6 +287,93 @@ private:
         vkGetDeviceQueue(device, indices.presentFamily.value(), 0, &presentQueue);
 	}
 	
+	void createSwapChain() { 
+		SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice);
+		
+		VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
+		VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
+		VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+		
+		// Specify the minimum number of images required to function. It is recommended to
+		// request at least one more image than the minimum to speed up the driver.
+		uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
+		
+		// We also want to avoid exceeding the maximum number of images, where 0 is a special
+		// value meaning that there is no maximum
+		if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
+			imageCount = swapChainSupport.capabilities.maxImageCount;
+		}
+		
+		// Creating the swap chain object requires filling in a large structure:
+		VkSwapchainCreateInfoKHR createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		createInfo.surface = surface;
+		
+		createInfo.minImageCount = imageCount;
+		createInfo.imageFormat = surfaceFormat.format;
+		createInfo.imageColorSpace = surfaceFormat.colorSpace;
+		createInfo.imageExtent = extent;
+		createInfo.imageArrayLayers = 1;
+		createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		// imageArrayLayers specifies the amount of layers each image consists of and will
+		// generally always be 1.
+		// imageUsage specifies what knid of operations the images will be used for.
+		
+		QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+		uint32_t queueFamilyIndices [] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+		
+		if (indices.graphicsFamily != indices.presentFamily) {
+			createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+			createInfo.queueFamilyIndexCount = 2;
+			createInfo.pQueueFamilyIndices = queueFamilyIndices;
+		} else {
+			createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			createInfo.queueFamilyIndexCount = 0; // optional
+			createInfo.pQueueFamilyIndices = nullptr; // optional
+		}
+		/* Next we need to specify how to handle swap chain images that will be used across
+		multiple queue families. That will be the case if the graphics queue family is different
+		from the presentation one. There are two ways to handle images that are accessed from
+		multiple queues:
+		
+		1. VK_SHARING_MODE_EXCLUSIVE:
+			An image is owned by one queue family at a time and ownership must be explicitly
+			transferred before using it in another queue family. This option offers the best
+			performace. 
+		2. VK_SHARING_MODE_CONCURRENT:
+			Images can be used across multiple queue families without explicit ownership transfer.*/
+		
+		createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+		// We can specify that a certain transformation should be applied to images in the swap
+		// chain if supported, like a 90 degree clockwise rotation. To specify that you do not
+		// want a transformation, simply specify the current transformation.
+		createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+		// The compositeAlpha field specifies if the alpha channel should be used for blending
+		// with other windows in the window system. We almost always want to ignore the alpha
+		// channel, so we use VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR.
+		
+		createInfo.presentMode = presentMode;
+		createInfo.clipped = VK_TRUE;
+		// If the clipped member is set to VK_TRUE that means that we don't care about the
+		// color of pixels that are obscured, like if another window is in front of them.
+		// Generally you will get the best performance by clipping. 
+		
+		createInfo.oldSwapChain = VK_NULL_HANDLE;
+		// For now assume that we only need to create one swap chain and don't need a reference
+		// to the old one. 
+		
+		if (VkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create swap chain!");
+		}
+		
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+		swapChainImages.resize(imageCount);
+		vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+		
+		swapChainImageFormat = surfaceFormat.format;
+		swapChainExtent = extent;
+	}
+		
 	// We need to write functions to determine the settings for the best possible swap chain. There are three
 	// settings to determine:
 	// 1. Surface format (color depth)
@@ -365,6 +459,8 @@ private:
 			return actualExtent;
 		}
 	}
+		// The clamp function is used to bound the values of width and height between the allowed
+		// minimum extents that are supported by the implementation.
 		
 	// The function that populates the struct
 	SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device) {
