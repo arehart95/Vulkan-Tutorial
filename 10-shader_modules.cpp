@@ -151,5 +151,117 @@ void main(){
 }
 
 // Now we will compile these into SPIR-V bytecode using the glslc program:
-		 
+
+/* On Windows:
+	Create a compile.bat file with the following contents:
+	C://VulkanSDK/x.x.x.x./Bin32/glslc.exe shader.vert -o vert.spv
+	C://VulkanSDK/x.x.x.x./Bin32/glslc.exe shader.frag -o frag.spv
 	
+	Replace the path to glslc.exe with the path to where you installed the VulkanSDK.
+	
+	On Linux:
+	Create a compile.sh file with the following contents:
+	/home/user/VulkanSDK/x.x.x.x./x86_64/bin/glslc shader.vert -o vert.spv
+	/home/user/VulkanSDK/x.x.x.x./x86_64/bin/glslc shader.frag -o frag.spv
+	
+	Replace the path to glslc with the path to where you installed the VulkanSDK.
+	Make the script executable with chmod +x compile.sh and run it. 
+*/
+
+// Loading a shader
+
+/* Now we need to load the shaders into the program and plug them into the graphics pipeline.
+	We will write a simple helper function to load the binary data from the files.
+*/
+
+#include <fstream>
+...
+static std::vector<char> readFile(const std::string& filename) {
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+	
+	if(!file.is_open()) {
+		throw std::runtime_error("failed to open file!");
+	}
+}
+
+/* The readFile function will read all of the bytes from the specified file and return them
+	in a byte array managed by std::vector. We start by opening the file with two flags:
+		ate: start reading at the end of the file
+		binary: read the file as a binary file (avoid text transformations)
+		
+	We start reading at the end of the file so we can use the read position to determine the
+	size of the file and allocate a buffer:
+*/
+		
+size_t fileSize = (size_t) file.tellg();
+std::vector<char> buffer(fileSize);
+
+// After that we can seek back to the beginningo of the file and read all of the bytes at once:
+
+file.seekg(0);
+file.read(buffer.data(), fileSize);
+
+// Finally close the file and return the bytes:
+
+file.close();
+return buffer;
+
+// Call this function from the createGraphicsPipeline function to load the bytecode
+
+void createGraphicsPipeline() {
+	auto vertShaderCode = readFile("shaders/vert.spv");
+	auto fragShaderCode = readFile("shaders/frag.spv");
+}
+
+// Creating shader modules
+// Before passing the code to the pipeline we have to wrap it in a VkShaderModule objec.
+// Let's create a helper function createShaderModule to do that:
+
+VkShaderModule createShaderModule(const std::vector<char>& code) {
+
+}
+// This function will take a buffer with the bytecode as a parameter.
+// Specify a pointer to the buffer with the bytecode and the length of it.
+
+VkShaderModuleCreateInfo createInfo{};
+createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+createInfo.codeSize = code.size();
+createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
+
+// Create VkShaderModule
+VkShaderModule shaderModule;
+if(vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+	throw std::runtime_error("failed to create shader module!");
+}
+return shaderModule;
+
+// We can destroy shader modules again as soon as pipeline creation is finished, so they are
+// local variables instead of class members.
+
+	VkShaderModule vertShaderModule = createShaderModule(vertShaderCode);
+	VkShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+
+// Clean up by adding two calls to vkDestroyShaderModule
+	
+	vkDestroyShaderModule(device, fragShaderModule, nullptr);
+	vkDestroyShaderModule(device, vertShaderModule, nullptr);
+
+// Shader stage creation
+// To use the shaders, assign them to a pipeline stage with VkPipelineShaderStageCreateInfo
+	VkPipelineShaderStageCreateInfo vertShaderStageCreateInfo{};
+	vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
+	vertShaderStageInfo.module = vertShaderModule; //module containing code
+	vertShaderStageInfo.pName = "main"; //standard entrypoint
+
+// Fragment shader struct
+	VkPipelineShaderStageCreateInfo fragShaderStageInfo{};
+	fragShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	fragShaderStageInfo.module = fragShaderModule;
+	fragShaderStageInfo.pName = "main";
+
+// Finish by defining an array that contains these two structs
+	VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+
+
