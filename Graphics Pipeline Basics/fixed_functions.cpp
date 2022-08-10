@@ -92,6 +92,8 @@ private:
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
     std::vector<VkImageView> swapChainImageViews;
+	
+	VkPipelineLayout pipelineLayout;
 
     void initWindow() {
         glfwInit();
@@ -120,6 +122,8 @@ private:
     }
 
     void cleanup() {
+		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+		
         for (auto imageView : swapChainImageViews) {
             vkDestroyImageView(device, imageView, nullptr);
         }
@@ -470,6 +474,70 @@ private:
 		rasterizer.depthBiasSlopeFactor = 0.0f; // optional
 		
 		// 5. Multisampling
+	    /*	This structure configures multisampling, which is one of the ways to perform anti-aliasing.
+			It combines the fragment shader results of multiple polygons that rasterize to the same
+			pixel. This mainly occurs near the edges. It doesn't need to run the fragment shader 
+			multiple times if only one polygon maps to a pixel which makes it significantly less 
+			expensive than rendering to a higher resoltuon and then downscaling. Enabling it requires a
+			GPU feature, which will be visited in a later chapter. */
+		VkPipelineMultisampleStateCreateInfo multisampling{};
+		multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+		multisampling.sampleShadingEnable = VK_FALSE;
+		multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		multisampling.minSampleShading = 1.0f; // optional
+		multisampling.pSampleMask = nullptr; // optional
+		multisampling.alphaToCoverageEnable = VK_FALSE; // optional
+		multisampling.alphaToOneEnable = VK_FALSE; // optional
+		
+		// 6. Color Blending
+		/*	After a fragment has returned a color it needs to be combined with the color that is
+			already in the framebuffer. This transformation is known as color blending and there
+			are two ways to do it:
+				1. Mix the old and new value to produce a final color
+				2. Combine the old and new value using a bitwise operation
+			There are two types of structs to configure color blending:
+				VkPipelineColorBlendAttachmentState contains the configuration per attached
+				framebuffer.
+				VkPipelineColorBlendStateCreateInfo contains the global color blending settings.
+				In this case we just have one framebuffer. */
+		VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+		colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		colorBlendAttachment.blendEnable = VK_FALSE;
+		colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE; // optional
+		colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO; // optional
+		colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE; // optional
+		colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO; // optional
+		colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD; // optional
+		
+		// The second struct references the array of structures for all the framebuffers and allows
+		// you to set blend constants to use as blend factors.
+		VkPipelineColorBlendStateCreateInfo colorBlending{};
+		colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+		colorBlending.logicOpEnable = VK_FALSE;
+		colorBlending.logicOp = VK_LOGIC_OP_COPY; // optional
+		colorBlending.attachmentCount = 1;
+		colorBlending.pAttachments = &colorBlendAttachment;
+		colorBlending.blendConstants[0] = 0.0f; // optional
+		colorBlending.blendConstants[1] = 0.0f; // optional
+		colorBlending.blendConstants[2] = 0.0f; // optional
+		colorBlending.blendConstants[3] = 0.0f; // optional
+		
+		// 6. Pipeline Layout
+		/*	You can use uniform values in shaders which can be changed at drawing time to alter the
+			behavior of your shaders without having to recreate them. They are commonly used to pass
+			the transformation matrix to the vertex shader, or to create texture samplers in the
+			fragment shader. These values needs to be specified during pipeline creation by creating
+			a VkPipelineLayout object. */
+		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutInfo.setLayoutCount = 0; // optional
+		pipelineLayoutInfo.pSetLayouts = nullptr; // optional
+		pipelineLayoutInfo.pushConstantRangeCount = 0; // optional
+		pipelineLayoutInfo.pPushConstantRanges = nullptr; // optional
+		
+		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create pipeline layout!");
+		}
 		
 		
 		
