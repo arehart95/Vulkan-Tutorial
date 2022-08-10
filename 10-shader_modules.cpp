@@ -18,7 +18,7 @@
 	would be stored in vec3. It is possible to access single components with .x, but it is also
 	possible to create a new vector from multiple components at the same time. For example, the 
 	expression vec3(1.0, 2.0, 3.0).xy would result in vec2. The constructors of vectors can also
-	take combinations of vecotr objects and scalar values. vec3 can be constructed with
+	take combinations of vector objects and scalar values. vec3 can be constructed with
 	vec3(vec2(1.0, 2.0), 3.0).
 	
 	Vertex Shader
