@@ -2,7 +2,7 @@
 
 Starting my Vulkan journey!
 
-These folders are organized as they appear in the Vulkan Tutorial website, www.vulkan-tutorial.com
+These folders are organized as they appear in the Vulkan Tutorial website, https://www.vulkan-tutorial.com
 
 Their contents so far:
 
