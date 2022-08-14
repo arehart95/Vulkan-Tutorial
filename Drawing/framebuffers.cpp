@@ -1,3 +1,10 @@
+/* The attachments specified during render pass creation are bound by wrapping them into a VkFramebuffer
+    object. A framebuffer object references all of the VkImageView objects that represent the attachments. In
+    this case it is just a single one: the color attachment. The image that we have to use for the attachment
+    depends on which image the swap chain returns when we retrieve one for presentation. So we have to create
+    a framebuffer for all the images in the swap chain and use the one that corresponds to the retrieved image
+    at drawing time. Create another std::vector class member to hold the framebuffer. */
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -92,6 +99,8 @@ private:
     VkRenderPass renderPass;
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
+    
+    std::vector<VkFramebuffer> swapChainFramebuffers;
 
     void initWindow() {
         glfwInit();
@@ -112,6 +121,7 @@ private:
         createImageViews();
         createRenderPass();
         createGraphicsPipeline();
+        createFramebuffers();
     }
 
     void mainLoop() {
@@ -121,6 +131,10 @@ private:
     }
 
     void cleanup() {
+		for (auto framebuffer : swapChainFramebuffers) {
+			vkDestroyFramebuffer(device, framebuffer, nullptr);
+		}
+		
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
         vkDestroyRenderPass(device, renderPass, nullptr);
@@ -491,6 +505,40 @@ private:
 
         vkDestroyShaderModule(device, fragShaderModule, nullptr);
         vkDestroyShaderModule(device, vertShaderModule, nullptr);
+    }
+    
+    void createFramebuffers() {
+        // Start by resizing the container to hold all of the framebuffers
+        swapChainFramebuffers.resize(swapChainImageViews.size());
+        // Iterate through the image views and create framebuffers from them:
+        for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+            VkImageView attachment[] = {
+                swapChainImageViews[i]
+            };
+            
+            VkFramebufferCreateInfo framebufferInfo{};
+            framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebufferInfo.renderPass = renderPass;
+            framebufferInfo.attachmentCount = 1;
+            framebufferInfo.pAttachments = attachments;
+            framebufferInfo.width = swapChainExtent.width;
+            framebufferInfo.height = swapChainExtent.height;
+            framebufferInfo.layers = 1;
+            
+            if (vkCreateFramebuffer(device, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create framebuffer!");
+            }
+        }
+        /* Creation of the framebuffers is straightforward. We first need to specify which renderPass the 
+            framebuffer needs to be compatible with. This means that they use roughly the same number of
+            attachments. 
+            
+            The attachmentCount and pAttachments parameters specify the VkImageView objects that should be bound
+            to the respective attachment descriptions in the render pass pAttachment array. 
+            
+            The width and height parameters are self-explanatory and the layers refers to the number of layers in
+            the image arrays. We should delete the framebuffers before the image views and render pass they are
+            based on, but only after we've finished rendering. */
     }
 
     VkShaderModule createShaderModule(const std::vector<char>& code) {
