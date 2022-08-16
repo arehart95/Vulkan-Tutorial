@@ -707,6 +707,8 @@ private:
         vkQueuePresentKHR(presentQueue, &presentInfo);
 		
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT; // advance to next frame
+		// By using % we ensure that the frame index loops around after every 
+		// MAX_FRAMES_IN_FLIGHT enqueued frames.
     }
 
     VkShaderModule createShaderModule(const std::vector<char>& code) {
