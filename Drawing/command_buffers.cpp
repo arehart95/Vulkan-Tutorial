@@ -630,9 +630,60 @@ private:
 		// The last two parameters define the clear vlaues to use for VK_ATTACHMENT_LOAD_OP_CLEAR which we 
 		// used as the load operation for the color attachment. This color is black with 100% opacity. 
 		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-														 
-													
+		/* The render pass can now begin! All the functions that record commands can be regonized by
+			their vkCmd prefix. They all return void, so there will be no error handling until the
+			recording is finished. 
 			
+			The first parameter for every command is always the command buffer to record the command to.
+			The second parameter specifies the details of the render pass we've just provided.
+			The last parameter controls how the drawing commands within the render pass will be provided.
+			It can have one of two values:
+				VK_SUBPASS_CONTENTS_INLINE:
+					The render pass commands will be embedded in the primary command buffer itself and
+					no secondary command buffers will be executed.
+				VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS:
+					The render pass commands will be executed from secondary command buffers. */
+		
+		// Basic drawing commands
+		// We can now bind the graphics pipeline:
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+				
+		/* The second parameter specifies if the pipeline object is a graphics or compute pipeline.
+			We've now told Vulkan which operations to execute in the graphics pipeline and which
+			attachment to use in the fragment shader.
+			
+			Now, we have to specify viewport and scissor state */
+		VkViewport viewport[];
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = static_cast<float>(swapChainExtent.width);
+		viewport.height = static_cast<float>(swapChainExtent.height);
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+		vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+		
+		VkRect2D scissor[];
+		scissor.offset = {0, 0};
+		scissor.extent = swapChainExtent;
+		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+		
+		vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+		/* The draw function is anticlimactic because it is so simple due to the information we
+			specified in advance. It has the following parameters, excluding commandBuffer:
+				vertexCount:
+					Despite having no vertexBuffer, there are still 3 vertices to draw.
+				instanceCount:
+					Used for instance rendering, using 1 if you're not doing that.
+				firstVertex:
+					Used as an offset into the vertex buffer, defines the lowest value of
+					gl_VertexIndex.
+				firstInstance:
+					Used as an offset for instance rendering, defines the lowest value of
+					gl_InstanceIndex. */
+		vkCmdEndRenderPass(commandBuffer);
+		if (vkEndCommandBuffer(comandBuffer) != VK_SUCCESS {
+			throw std::runtime_error("failed to record command buffer!");
+		}	
 	
 	}
 	
