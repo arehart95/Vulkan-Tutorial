@@ -1,3 +1,12 @@
+/*  The application now draws a triangle, but there are circumstances that it does not handle
+    properly yet. It is possible for the window surface to change such that the swap chain is
+    no longer compatible with it, such as the size of the window changing. We have to catch 
+    these events and recreate the swap chain.
+    
+    Create a new recreateSwapChain function that calls createSwapChain and all of the creation
+    functions for the objects that depend on the swap chain or window size. */
+
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -139,6 +148,8 @@ private:
     }
 
     void cleanup() {
+        cleanupSwapChain();
+        
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
             vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
@@ -652,9 +663,29 @@ private:
 
     void drawFrame() {
         vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
+        uint32_t imageIndex;
+        
+    /* Now we need to figure out when swap chain recreation is necessary and call the new
+        recreateSwapChain function. Luckily Vulkan will usually say that the swap chain is no
+        longer adequate during presentation. The vkAcquireNextImageKHR and vkQueuePresentKHR
+        functions can return the following special values to indicate this:
+            VK_ERROR_OUT_OF_DATE_KHR: 
+                The swap chain has become incompatible with the surface 
+                and can no longer be used for rendering. Usually happens after a window resize.
+            VK_SUBOPTIMAL_KHR:
+                The swap chain can still be used to successfully present to the surface, but the
+                surface properties are no longer matched exactly. */
+        VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
+        
+        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+            recreateSwapChain();
+            return;
+        } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+            throw std::runtime_error("failed to acquire swap chain image!");
+        }
+        
         vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
-        uint32_t imageIndex;
         vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
         vkResetCommandBuffer(commandBuffers[currentFrame], /*VkCommandBufferResetFlagBits*/ 0);
@@ -691,11 +722,39 @@ private:
         presentInfo.pSwapchains = swapChains;
 
         presentInfo.pImageIndices = &imageIndex;
+        
+        
 
         vkQueuePresentKHR(presentQueue, &presentInfo);
 
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
+    // To make sure the old versions of these objects are cleaned up before recreating them we
+    // can make a separate function to do the cleaning and call it from recreateSwapChain
+    
+    // Move the cleanup code of all objects that are recreated as part of the swap chain refresh
+    // from cleanup to cleanupSwapChain
+    void cleanupSwapChain() {
+        for (size_t i = 0, i < swapChainFramebuffers.size(); i++) {
+            vkDestroyFramebuffer(device, swapChainFramebuffers[i], nullptr);
+        }
+        for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+            vkDestroyImageView(device, swapChainImageViews[i], nullptr);
+        }
+        vkDestroySwapchainKHR(device, swapChain, nullptr);
+    }
+    
+    void recreateSwapChain() {
+       // First we call vkDeviceWaitIdle because we shouldn't touch resources still in use. 
+        vkDeviceWaitIdle(device);
+        
+        cleanupSwapChain();
+        
+        createSwapChain();
+        createImageViews();
+        createFramebuffers();
+    }
+        
 
     VkShaderModule createShaderModule(const std::vector<char>& code) {
         VkShaderModuleCreateInfo createInfo{};
