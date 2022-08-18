@@ -112,6 +112,8 @@ private:
     std::vector<VkSemaphore> renderFinishedSemaphores;
     std::vector<VkFence> inFlightFences;
     uint32_t currentFrame = 0;
+    
+    bool frameBufferResized = false; // handling window resizing explicitly
 
     void initWindow() {
         glfwInit();
@@ -684,6 +686,7 @@ private:
             throw std::runtime_error("failed to acquire swap chain image!");
         }
         
+        // Reset fence to prevent a deadlock 
         vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
         vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
@@ -722,11 +725,19 @@ private:
         presentInfo.pSwapchains = swapChains;
 
         presentInfo.pImageIndices = &imageIndex;
-        
-        
-
-        vkQueuePresentKHR(presentQueue, &presentInfo);
-
+       
+        result = vkQueuePresentKHR(presentQueue, &presentInfo);
+        /* Modify drawFrame function to check for the frameBufferResized flag
+        // The vkQueuePresentKHR function returns the same values with the same meaning:
+        // fffys important to do this after vkQueuePresentInfo to ensure that the semaphores are
+        in a consistent state, otherwise a signaled semaphore mau never be properly waited on */
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
+            framebufferResized = false;
+            recreateSwapChain();
+        } else if (result != VK_SUCCESS) {
+            throw std::runtime_error("failed to present swap chain image!");
+        }
+       
         currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
     // To make sure the old versions of these objects are cleaned up before recreating them we
