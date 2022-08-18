@@ -103,6 +103,12 @@ struct SwapChainSupportDetails {
 struct Vertex {
 	glm::vec2 pos;
 	glm::vec3 color;
+	
+	static VkVertexInputBindingDescription getBindingDescription() {
+		VkVertexInputBindingDescription bindingDescription{};
+		
+		return bindingDescription;
+	}
 };
 
 /* Now use the Vertex structure to specify an array of vertex data. This is exactly the same
@@ -113,6 +119,10 @@ const std::vector<Vertex> vertices = {
 	{{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
 	{{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}
 };
+
+// The next step is to tell Vulkan how to pass this data format to the vertex shader. There are two types of
+// structures needed to convey this info. The first is VkVertexInputBindingDescription and we will add a 
+// member function to tbe Vertex struct.
 	
 
 class HelloTriangleApplication {
