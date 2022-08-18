@@ -122,7 +122,20 @@ private:
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
+        // Use this function that allows you to store an arbitrary pointer inside of it
+        glfwSetWindowUserPointer(window, this);
+        glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
     }
+    
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
+    /* We use a static function because GLFW does not know how to properly call a member function
+       with the right this pointer to our HelloTriangleApplication. Now, with the 
+       glfwSetWindowUserPointer function the value can now be retrieved within the callback */
+        auto app = reinterpret_cast<HelloTriangleApplication*>(glfwGetWindowUserPointer(window));
+        app->framebufferResized = true;
+        
+    }
+    
 
     void initVulkan() {
         createInstance();
@@ -728,9 +741,10 @@ private:
        
         result = vkQueuePresentKHR(presentQueue, &presentInfo);
         /* Modify drawFrame function to check for the frameBufferResized flag
-        // The vkQueuePresentKHR function returns the same values with the same meaning:
-        // fffys important to do this after vkQueuePresentInfo to ensure that the semaphores are
-        in a consistent state, otherwise a signaled semaphore mau never be properly waited on */
+        The vkQueuePresentKHR function returns the same values with the same meaning:
+        It is important to do this after vkQueuePresentInfo to ensure that the semaphores are
+        in a consistent state, otherwise a signaled semaphore mau never be properly waited on
+        Now, to detect resizes we set up a callback in the GLFW framework */
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
             framebufferResized = false;
             recreateSwapChain();
@@ -755,7 +769,20 @@ private:
         vkDestroySwapchainKHR(device, swapChain, nullptr);
     }
     
+    /*  Another case where a swap chain may become out of date is during a special kind of window
+        resizing called window minimization. It is special because it will result in a framebuffer
+        size of 0. We will handle that by pausing until the window is in the foreground again by
+        extending the recreateSwapChain function: */
     void recreateSwapChain() {
+        int width = 0, height = 0;
+        glfwGetFramebufferSize(window, &width, &height);
+        while (width == 0 || height == 0) {
+            glfwGetFramebufferSize(window, &width, &height);
+            glfwWaitEvents();
+        // The initial call to glfwGetFramebufferResize handles the case where the size is
+        // already correct and glfwWaitEvents would have nothing to wait on.
+        }
+        
        // First we call vkDeviceWaitIdle because we shouldn't touch resources still in use. 
         vkDeviceWaitIdle(device);
         
