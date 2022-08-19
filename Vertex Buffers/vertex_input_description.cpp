@@ -47,6 +47,7 @@
 #include <limits>
 #include <optional>
 #include <set>
+#include <array> // for attribute descriptions
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -107,8 +108,48 @@ struct Vertex {
 	static VkVertexInputBindingDescription getBindingDescription() {
 		VkVertexInputBindingDescription bindingDescription{};
 		
+		bindingDescription.binding = 0;
+		bindingDescription.stride = sizeof(Vertex);
+		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+/* 	All of the per-vertex data is packed together in one array, so we're only going to have
+	one binding. The binding parameter specifies the index of the binding in the array of
+	bindings. The stride parameter specifies the number of bytes from one entry to the next
+	and the inputRate parameter can have one of the following values:
+		
+		VK_VERTEX_INPUT_RATE_VERTEX:	
+			Move to the next data entry after each vertex.
+		VK_VERTEX_INPUT_RATE_INSTANCE:
+			Move to the next data entry after each instance. 
+	
+	We are not using instanced rendering so we'll stick to per-vertex data. */
+		
 		return bindingDescription;
 	}
+
+// The next structure that describes how to handle vertex input is VkVertexInputAttributeDescription
+// We will add another helper function here to fill in the structs
+	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+		
+	/* As you can see in the function prototype, there will be two structs. An attribute 
+		description struct describes how to extract a vertex attribute from a chunk of vertex
+		data originating from a binding description. We have two attributes so we need two 
+		of these structs. */
+		
+		// Vertex Attributes
+		attributeDescriptions[0].binding = 0;
+		attributeDescriptions[0].location = 0;
+		attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[0].offset = offsetof(Vertex, pos);
+		
+		// Color Attributes described in the same way:
+		attributeDescriptions[1].binding = 0;
+		attributeDescriptions[1].location = 1;
+		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescriptions[1].offset = offsetof(Vertex, color);
+
+		
+
 };
 
 /* Now use the Vertex structure to specify an array of vertex data. This is exactly the same
