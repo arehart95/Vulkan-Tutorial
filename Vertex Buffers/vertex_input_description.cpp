@@ -147,9 +147,40 @@ struct Vertex {
 		attributeDescriptions[1].location = 1;
 		attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
 		attributeDescriptions[1].offset = offsetof(Vertex, color);
-
+	/*	The binding parameter tells Vulkan from which binding the per-vertex data comes from.
+		The location parameter references the location of directive of the input in the vertex
+		shader. The input with location 0 is the position, which has 32-bit float components.
 		
-
+		The format parameter describes the type of data for the attribute. The formats are 
+		specified in the same enumeration as color formats. The following shader types and formats
+		are commonly used together:
+		
+			float: VK_FORMAT_R32_SFLOAT
+			vec2: VK_FORMAT_R32G32_SFLOAT
+			vec3: VK_FORMAT_R32G32B32_SFLOAT
+			vec4: VK_FORMAT_R32G32B32A32_SFLOAT
+			
+		You should use the format where the amount of color channels matches the number of 
+		components in the shader data type. If the number of channels is lower than the number of
+		components, then the BGA components will use default values of (0, 0, 1). The color type
+		(SFLOAT, UINT, SINT) and bit width should also match the type of the shader input:
+		
+			ivec2: VK_FORMAT_R32G32_SINT:
+					a 2-component vector of 32-bit signed integers
+			uvec4: VK_FORMAT_R32G32B32A32_UINT:
+					a 4-component vector of 32-bit unsigned integers
+			double: VK_FORMAT_R64_SFLOAT:
+					a double-precision 64-bit float
+		
+		The format parameter implicitly defines the byte size of attribute data and the offset
+		parameter the number of bytes since the start of the per-vertex data to read from. The
+		binding is loading one Vertex at a time and the position attribute (pos) is at an offset
+		of 0 bytes from the beginning of the struct. This is automatically calculated with the
+		offsetof macro. 
+		
+		From here er need to set up the graphics pipeline to accept vertex data in this format
+		by referencing the structures in createGraphicsPipeline. FInd the vertexInputInfo struct
+		and modify it. */	
 };
 
 /* Now use the Vertex structure to specify an array of vertex data. This is exactly the same
@@ -579,9 +610,15 @@ private:
         VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
         VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
-        vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        vertexInputInfo.vertexBindingDescriptionCount = 0;
-        vertexInputInfo.vertexAttributeDescriptionCount = 0;
+		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        
+		auto bindingDescription = Vertex::getBindingDescription();
+		auto attributeDescriptions = Vertex::getAttributeDescriptions();
+		
+		vertexInputInfo.vertexBindingDescriptionCount = 1;
+        vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
