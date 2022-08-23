@@ -25,7 +25,9 @@
             chapter) to the transfer queue instead of the graphics queue.
      
      It's a lot of work but will demonstrate about how resources are shared between queue 
-     families. */
+     families. Because we are going to create multiple buffers, it is a good idea to move 
+     buffer creation to a helper function. Create a new function createBuffer and move the code
+     in createVertexBuffer except mapping to it. */
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -680,35 +682,123 @@ private:
     }
 
     void createVertexBuffer() {
-        VkBufferCreateInfo bufferInfo{};
-        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = sizeof(vertices[0]) * vertices.size();
-        bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        // Removed old code and now calling createBuffer instead
+        VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+        // Modifying createVertexBuffer to only use a host visible buffer as a temporary buffer
+        // and use a device local one as the actual vertex buffer
+        
+        VkBuffer stagingBuffer;
+        VkDeviceMemory stagingBufferMemory;
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+		/* We are now using a new stagingBuffer with stagingBufferMemory for mapping and copying vertex
+			data. We are also using two new buffer usage flags:
+			
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT:
+				Buffer can be used as a source in a memory transfer operation.
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT:
+				Buffer can be used as a destination in a memory transfer operation. 
+			
+			The vertexBuffer is now allocated from a memory type that is device local, which generally
+			means that we're not able to use vkMapMemory. However, we can copy data from the 
+			stagingBuffer to the vertexBuffer. We must indicate that we intend to do that by 
+			specifying the transfer source flag for the stagingBuffer and the transfer destination flag
+			for the vertexBuffer, along with the vertex buffer usage flag. Create a function
+			to copy the contents from one buffer to another called copyBuffer. */
 
-        if (vkCreateBuffer(device, &bufferInfo, nullptr, &vertexBuffer) != VK_SUCCESS) {
-            throw std::runtime_error("failed to create vertex buffer!");
-        }
-
-        VkMemoryRequirements memRequirements;
-        vkGetBufferMemoryRequirements(device, vertexBuffer, &memRequirements);
-
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memRequirements.size;
-        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        if (vkAllocateMemory(device, &allocInfo, nullptr, &vertexBufferMemory) != VK_SUCCESS) {
-            throw std::runtime_error("failed to allocate vertex buffer memory!");
-        }
-
-        vkBindBufferMemory(device, vertexBuffer, vertexBufferMemory, 0);
-
+        
         void* data;
         vkMapMemory(device, vertexBufferMemory, 0, bufferInfo.size, 0, &data);
             memcpy(data, vertices.data(), (size_t) bufferInfo.size);
         vkUnmapMemory(device, vertexBufferMemory);
+        
+        createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
+		copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
+		
+		// After copying the data, it should be cleaned up:
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
+		
     }
+    
+    void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = size;
+        bufferInfo.usage = usage;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create buffer!");
+        }
+        
+        VkMemoryRequirements memRequirements;
+        vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+        
+        VkMemoryAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocInfo.size = memRequirements.size;
+        allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+        
+        if (vkAllocateMemory(device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocated buffer memory!");
+        }
+        
+        vkBindBufferMemory(device, buffer, bufferMemory, 0);
+    }
+	
+	void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
+		/* Memory transfer operations are executed using command buffers, just like drawing commands.
+			Therefore we must first allocate a temporary command buffer. It is possible to create a 
+			separate command pool for these short-lived buffers because the implementation may be able
+			to apply memory allocation optimizations. In that case you should use the 
+			VK_COMMAND_POOL_CREATE_TRANSIENT_BIT flag during command pool generation. */
+		VkCommandBufferAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		allocInfo.level = VK_COMMAND_BUFFER_PRIMARY;
+		allocInfo.commandPool = commandPool;
+		allocInfo.commandBufferCount = 1;
+		
+		VkCommandBuffer commandBuffer;
+		vkAllocateCommandBuffer(device, &allocInfo, &commandBuffer);
+		// Then immediately start recording the command buffer
+		VkCommandBufferBeginInfo beginInfo{};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		/* We will only be using the command buffer once and wait with returning from the 
+			function until the copy operation has finished executing. It's good practice to tell
+			the driver about that intent using VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT. */
+		vkBeginCommandBuffer(commandBuffer, &beginInfo);
+		
+		VkBufferCopy copyRegion{};
+		copyRegion.srcOffset = 0; // optional
+		copyRegion.dstOffset = 0; // optional
+		copyRegion.size = size;
+		vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
+		/* Contents of buffers are transferred using the vkCmdCopyBuffer command. It takes the
+		source and destination buffers as arguments and an array of regions to copy. The regions
+		are defined in VkBufferCopy structs and consist of a source buffer offset, destination
+		buffer offset, and size. It is not possible to specify VK_WHOLE_SIZE here. */
+		VkEndCommandBuffer(commandBuffer);
+		// There is only one copy command so we can stop recording right after that.
+		// Now execute the command buffer to complete the transfer
+		VkSubmitInfo submitInfo{};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &commandBuffer;
+		
+		vkQueueSubmit(graphicsQueue, &submitInfo, VK_NULL_HANDLE);
+		vkQueueWaitIdle(graphicsQueue);
+		/* Unlike the draw commands, there are no events we need to wait on this time. We simply want
+			to execute the transfers on the buffers immediately. There are again two possible ways to
+			wait on this transfer to complete. We could use a fence and wait with vkWaitForFences, or 
+			wait for the transfer queue to become idle with vkQueueWaitIdle. A fence would allow you 
+			to schedule multiple transfers simultaneously and wait for all of them to complete, instead
+			of executing one at at time. That may give the driver more opportunities to optimize. */
+		// Don't forget to clean up the command buffer used for the transfer:
+		vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+		
+		// Now we can call copyBuffer from the createVertexBuffer function
+		
+	}
 
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
         VkPhysicalDeviceMemoryProperties memProperties;
