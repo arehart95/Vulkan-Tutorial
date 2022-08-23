@@ -1,3 +1,32 @@
+/* The vertex buffer in use right now works correctly but the memory type that allows us to 
+    access it from the CPU may not be the most optimal memory type for the graphics card itself
+    to read from. The most optimal memory has the VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT flag and
+    is usually not accessible by the CPU on dedicated graphics cards. 
+    
+    This time we're going to create two vertex buffers. One so-called staging buffer in CPU
+    accessible memory to upload the data from the vertex array to, and the final vertex buffer
+    in device local memory. We will then use a buffer copy command to move data from the 
+    staging buffer to the actual vertex buffer. 
+    
+    // Transfer Queue
+    
+    The buffer copy command requires a queue family that supports transfer operations, which is
+    indicated using VK_QUEUE_TRANSFER_BIT. Any queue family with VK_QUEUE_TRANSFER_BIT or 
+    VK_QUEUE_COMPUTE_BIT capabilities already implicitly support VK_QUEUE_TRANSFER_BIT 
+    operations. It will require the following moderations to the program:
+        1. Modify QueueFamilyIndices and findQueueFamilies to explicitly look for a queue family
+            with the VK_QUEUE_TRANSFER_BIT, but not the VK_QUEUE_GRAPHICS_BIT.
+        2. Modify createLogicalDevice to request a handle to the transfer queue.
+        3. Create a second command pool for command buffers that are submitted on the transfer
+            queue family. 
+        4. Change the sharingMode of resources to be VK_SHARING_MODE_CONCURRENT and specify
+            both the graphics and transfer queue families.
+        5. Submit any transfer commands like vkCmdCopyBuffer (which we'll be using in this 
+            chapter) to the transfer queue instead of the graphics queue.
+     
+     It's a lot of work but will demonstrate about how resources are shared between queue 
+     families. */
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
