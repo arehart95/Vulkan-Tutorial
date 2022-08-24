@@ -1,3 +1,15 @@
+/* From now, we will move on to 3D graphics and that requires a model-view-projection matrix.
+	The right way to tackle this in Vulkan is to use resource descriptors. A descriptor is
+	a way for shaders to freely access resources like buffers and images. We will set up a
+	buffer that contains the transformation matrices and have the vertex shader access them
+	through a descriptor. Usage of descriptors consists of three parts:
+		
+			1. Specify a descriptor layout during pipeline creation.
+			2. Allocate a descriptor set from a descriptor pool.
+			3. Bind the descriptor set during rendering. 
+
+*/
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
