@@ -8,6 +8,13 @@
 			2. Allocate a descriptor set from a descriptor pool.
 			3. Bind the descriptor set during rendering. 
 
+	The descriptor layout specifies the types of resources that are going to be accessed by
+	the pipeline, just like a render pass specifies the types of attachments that will be 
+	accessed. A descriptor set specifies the actual buffer or image resources that will be
+	bound to the descriptors, just like a framebuffer specifies the actual image views to
+	bind to the render pass attachments. The descriptor set is then bound for the drawing
+	commands just like the vertex buffer and framebuffer. Although there are many types of
+	descriptors, we will be working with uniform buffer objects (UBO).
 */
 
 #define GLFW_INCLUDE_VULKAN
@@ -107,6 +114,15 @@ struct Vertex {
         return attributeDescriptions;
     }
 };
+
+struct UniformBufferObject {
+	glm::mat4 model; // model matrix
+	glm::mat4 view; // view matrix
+	glm::mat4 proj; // projection matrix
+}; // the MVP matrix
+
+/* Copy the data to a VkBuffer and access it through a UBO descriptor from the vertex shader:
+ 	** Vertex shader code and comments are in the shader_ubo.cpp file** */
 
 const std::vector<Vertex> vertices = {
     {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
