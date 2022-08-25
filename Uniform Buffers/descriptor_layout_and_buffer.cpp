@@ -122,7 +122,26 @@ struct UniformBufferObject {
 }; // the MVP matrix
 
 /* Copy the data to a VkBuffer and access it through a UBO descriptor from the vertex shader:
- 	** Vertex shader code and comments are in the shader_ubo.cpp file** */
+ 	** Vertex shader code and comments are in the shader_ubo.cpp file**
+	
+	We can exactly match the definition in the shader using data types in GLM. The data in the
+	matrices is binary compatible with the way the shader expects it, so we can later just 
+	memcpy a UniformBufferObject to a VkBuffer. 
+	
+	We need to provide a lot of details about every descriptor binding used in the shaders for
+	pipeline creation, just like we had to do for every vertex attribute and its location index.
+	We'll set up a new function to define all of this information called 
+	createDescriptorSetLayout. It should be called right before pipeline creation because we're
+	going to need it there. 
+	
+	We're also going to create the buffer that contains the UBO data for the shader. We'll copy
+	the new data to the UB every frame, so it doesn't make sense to have a staging buffer. It 
+	would likely degrade performance instead of improving it. We should have multiple buffers
+	because multiple frames may be in flight at the same time and we do not want to update the
+	buffer in preparation of the next frame while a previous one is still reading from it. We
+	need to have as many uniform buffers as we have frames in flight, and write to a uniform
+	buffer that is not currently being read by the GPU. Add new class members for 
+	uniformBuffers and uniformBuffersMemory. */
 
 const std::vector<Vertex> vertices = {
     {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
@@ -165,6 +184,7 @@ private:
     std::vector<VkFramebuffer> swapChainFramebuffers;
 
     VkRenderPass renderPass;
+	VKDescriptorSetLayout descriptorSetLayout;
     VkPipelineLayout pipelineLayout;
     VkPipeline graphicsPipeline;
 
@@ -174,6 +194,9 @@ private:
     VkDeviceMemory vertexBufferMemory;
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
+	
+	std::vector<VkBuffer> uniformBuffers;
+	std::vector<VkDeviceMemory> uniformBuffersMemory;
 
     std::vector<VkCommandBuffer> commandBuffers;
 
@@ -208,11 +231,13 @@ private:
         createSwapChain();
         createImageViews();
         createRenderPass();
+		createDescriptorSetLayout();
         createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
         createVertexBuffer();
         createIndexBuffer();
+		createUniformBuffers();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -240,6 +265,13 @@ private:
 
     void cleanup() {
         cleanupSwapChain();
+		
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			vkDestroyBuffer(device, uniformBuffers[i], nullptr);
+			vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
+		}
+		
+		VkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
@@ -539,6 +571,42 @@ private:
         }
     }
 
+	void createDescriptorSetLayout() {
+		VkDescriptorSetLayoutBinding uboLayoutBinding{};
+		uboLayoutBinding.binding = 0;
+		uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		uboLayoutBinding.descriptorCount = 1;
+	/* The first two fields specify the binding used in the shader and the type of descriptor
+		which is a UBO. It is possible for the shader variable to represent an array of 
+		uniform buffer objects, and descriptorCount specifies the number of variables in the
+		array. This could be used to specify a transformation for each of the bones in a 
+		skelton for skeletal animation. Our MVP is transformation is in a single UBO, so our
+		descriptorCount is 1. */
+		uboLayoutBinding.stageFlags = VK_STAGE_SHADER_VERTEX_BIT;
+	/*	We also need to specfiy in which shader stages the descriptor is going to be referenced.
+		The stageFlags field can be a combination of VkShaderStageFlagBits or the value 
+		VK_SHADER_STAGE_ALL_GRAPHICS. In this case we are only referencing the descriptor from
+		the vertex shader. */
+		uboLayoutBinding.pImmutableSamplers = nullptr; // optional
+	/*	The pImmutableSamplers field is only relevant for image sampling related descriptors 
+		which will be introduced later. All of the descriptor bindings are combined into a single
+		VkDescriptorSetLayout object. Define a new class member above pipelineLayout. We can then
+		create it using VkCreateDescriptorSetLayout. The function accepts a simple 
+		VkDescriptorSetCreateLayoutCreateInfo with the array of bindings. */
+		VkDescriptorSetLayoutCreateInfo layoutInfo{};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = 1;
+		layoutInfo.pBindings = &uboLayoutBinding;
+		
+		if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS {
+			throw std::runtime_error("failed to create descriptor set layout!");
+		}
+	/*	We need to specify the descriptor set layout during pipeline creation to tell Vulkan 
+		which descriptors the shaders will be using. Descriptor set layouts are specified in the
+		pipeline layout object. Modify VkPipelineLayoutCreateInfo to reference the layout object. */
+		
+	}
+	
     void createGraphicsPipeline() {
         auto vertShaderCode = readFile("shaders/vert.spv");
         auto fragShaderCode = readFile("shaders/frag.spv");
@@ -622,8 +690,14 @@ private:
 
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 0;
+        pipelineLayoutInfo.setLayoutCount = 1;
         pipelineLayoutInfo.pushConstantRangeCount = 0;
+		pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
+	/*	It's worth noting why it is possible to specify multiple descriptor layouts here because
+		a single one already includes all of the bindings. This will be looked at later when we 
+		talk about descriptor pools and sets. The descriptor should stick around until the program
+		ends. */
+		
 
         if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("failed to create pipeline layout!");
@@ -728,6 +802,22 @@ private:
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
+			
+	void createUniformBuffers() {
+		// Allocate the buffers
+		VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+		
+		uniformBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+		uniformBuffersMemory.resize(MAX_FRAMES_IN_FLIGHT);
+		
+		for(size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBuffers[i], uniformBuffersMemory[i]);
+		}
+		// The buffer should only be destroyed when we stop rendering
+	}
+		
+		
+	}
 
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
         VkBufferCreateInfo bufferInfo{};
@@ -887,6 +977,46 @@ private:
             }
         }
     }
+			
+	// Create a new function updateUniformBuffer and call it from drawFrame
+	void updateUniformBuffer(uint32_t currentImage) {
+	/*	This function generates a new transformation every frame to make the geometry spin around.
+		We need to include two new headers to implement this:
+			#define GLM_FORCE_RADIANS
+			#include <glm/glm.hpp>
+			#include <glm/gtc/matrix_transform.hpp>
+			
+			#include <chrono>
+		The matrix_transform.hpp header exposes functions that can be used to generate model 
+		transformations like glm::rotate, view transformations like glm::lookAt, and projection
+		transformations like glm::perspective. The GLM_FORCE_RADIANS definition is necessary to
+		make sure that functions like glm::rotate use radians as arguments to avoid any possible
+		confusion.
+		
+		The chrono standard library header exposes functions to do precise timekeeping. This will
+		be used to make sure the geometry rotates at 90 degrees per second regardless of framerate. */
+		
+		static auto startTime = std::chrono::high_resolution_clock::now();
+		
+		auto currentTime = std::chrono::high_resolution_clocl::now();
+		float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+		
+	/*	This function starts out with logic to calculate the time in seconds since rendering has
+		started with floating point accuracy.
+		
+		Now we will define the model, view, and projection transformations in the UBO. The model 
+		rotation will be a simple rotation around the Z-axis using the time variable. */
+		
+		UniformBufferObject ubo{};
+		ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+	/*	The glm::rotate function takes an exisiting transformation, rotation angle, and rotation
+		axis as parameters. 
+		The glm::mat4(1.0f) constructor returns an identity matrix. Using a rotation angle of 
+		time * glm::radians(90.0f) accomplishes the purpose of rotation 90 degrees per second.
+	
+	*/
+		
+	}
 
     void drawFrame() {
         vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
@@ -900,6 +1030,8 @@ private:
         } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
             throw std::runtime_error("failed to acquire swap chain image!");
         }
+		
+		updateUniformBuffer(currentFrame);
 
         vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
