@@ -1,3 +1,8 @@
+/*  Now we are going to create a descriptor set for each VkBuffer resource to bind it to the 
+    uniform buffer descriptor. Descriptor sets can't be created directly; they must be allocated
+    from a pool like command buffers. This is called a descriptor pool. Create a new function 
+    called createDescriptorPool and call it after createUniformBuffers. */
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -156,6 +161,8 @@ private:
     VkDeviceMemory vertexBufferMemory;
     VkBuffer indexBuffer;
     VkDeviceMemory indexBufferMemory;
+	
+	VkDescriptorPool descriptorPool;
 
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
@@ -200,6 +207,7 @@ private:
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
+        createDescriptorPool();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -752,6 +760,30 @@ private:
         }
     }
 
+    void createDescriptorPool() {				
+    // 	First describe which descriptor types our descriptor sets will contain, and how many:
+		VkDescriptorPoolSize poolSize{};
+		poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	// 	We will allocate one of these descriptors for every frame. The pool size structure is
+	// 	referenced by the main VkDescriptorPoolCreateInfo
+		VkDescriptorPoolCreateInfo poolInfo{};
+		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		poolInfo.poolSizeCount = 1;
+		poolInfo.pPoolSizes = &poolSize;
+	// 	We also need to specify the maximum number of descriptor sets that may be allocated
+		poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	/* 	The struct has an optional flag similar to command pools that determinesif individual
+	   	descriptor sets can be freed or not: VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT.
+		However we do not need this setting so we leave the flags to its default value of 0. 
+		
+		Add a new class member to store the handle of the descriptor pool and call it from here. */
+     	if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create descriptor pool!");
+		}
+        				
+    }
+    
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
