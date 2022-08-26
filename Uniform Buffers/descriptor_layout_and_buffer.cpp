@@ -1009,12 +1009,34 @@ private:
 		
 		UniformBufferObject ubo{};
 		ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float) swapChainExtent.height, 0.1f, 10.0f);
+		ubo.proj[1][1] *= -1;
 	/*	The glm::rotate function takes an exisiting transformation, rotation angle, and rotation
 		axis as parameters. 
+		
 		The glm::mat4(1.0f) constructor returns an identity matrix. Using a rotation angle of 
 		time * glm::radians(90.0f) accomplishes the purpose of rotation 90 degrees per second.
-	
-	*/
+		
+		For the view transformation, we are looking at the geometry from above at a 45 degree angle.
+		THe glm::lookAt function takes the eye position, center position, and up axis as parameters. 
+		
+		The perspective position uses a 45 degree vertical field of view. The other parameters are the
+		aspect ratio, and near and fear view planes. It is important to use the current swap chain
+		extent to calculate the aspect ration to take into a account the new width and height of the 
+		window after a resize.
+		
+		GLM was originally designed for OpenGL where the Y coordinate of the clip space is 
+		inverted. The easiest way to compensate for that is to flip the sig on the scaling 
+		factor of the Y axis in the projection matrix. If you do not do this then the image
+		will be rendered upside down. 
+		
+		All of the transformations are defined now so we can copy the data in the UBO to the
+		current uniform buffer. */
+		void* data;
+		vkMapMemory(device, uniformBuffersMemory[currentImage], 0, sizeof(ubo), 0, &data);
+			memcpy(data, &ubo, sizeof(ubo));
+		vkUnmapMemory(device, uniformBuffersMemory[currentImage]);
 		
 	}
 
