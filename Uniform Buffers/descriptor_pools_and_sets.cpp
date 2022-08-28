@@ -163,6 +163,7 @@ private:
     VkDeviceMemory indexBufferMemory;
 	
 	VkDescriptorPool descriptorPool;
+	std::vector<VkDescriptorSet> descriptorSets;
 
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
@@ -208,6 +209,7 @@ private:
         createIndexBuffer();
         createUniformBuffers();
         createDescriptorPool();
+		createDescriptorSets();
         createCommandBuffers();
         createSyncObjects();
     }
@@ -244,7 +246,8 @@ private:
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);
             vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
         }
-
+		
+		vkDestroyDescriptorPool(device, descriptorPool, nullptr);
         vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
         vkDestroyBuffer(device, indexBuffer, nullptr);
@@ -608,7 +611,7 @@ private:
         rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizer.lineWidth = 1.0f;
         rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-        rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizer.depthBiasEnable = VK_FALSE;
 
         VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -777,12 +780,79 @@ private:
 	   	descriptor sets can be freed or not: VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT.
 		However we do not need this setting so we leave the flags to its default value of 0. 
 		
-		Add a new class member to store the handle of the descriptor pool and call it from here. */
+		Add a new class member to store the handle of the descriptor pool and call it from here.
+		Then, we can add a createDescriptorSets function to allocate the descriptor sets themselves. */
      	if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create descriptor pool!");
 		}
         				
     }
+	
+	void createDescriptorSets() {
+	/*	A descriptor set allocation is described with a vkDescriptorSetAllocateInfo struct. You need to specify
+		the descriptor pool to allocate from, the number of descriptor sets to allocate, and the descriptor 
+		layout to base them on: */
+		std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
+		VkDescriptorSetAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocInfo.descriptorPool = descriptorPool;
+		allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+		allocInfo.pSetsLayout = layouts.data();
+	/*	In this case we will create one descriptor set for each frame in flight, all with the same layout. 
+		Unfortunately we no need all of the copies of the layout because the next function expects an array
+		matching the number of sets. Add a class member VkDescriptorSet to hold the descriptor set handles
+		and allocate them with vkAllocateDescriptorSets. */
+		descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
+		if (vkAllocateDescriptorSets(device, &allocInfo, nullptr, descriptorSets.data()) != VK_SUCCESS) {
+			throw std::runtime_error("failed to allocate descriptor sets!");
+		}
+	/*	You do not need to explicitly clean up descriptor sets because they will be automatically freed
+		when the descriptor pool is destroyed. The call to vkAllocateDescriptorSets will allocate descriptor 
+		sets, each with one uniform buffer descriptor. 
+		
+		The sets have been allocated but the descriptors within the sets still need to be configured. Now we
+		will add a loop to populate every descriptor. Descriptors that refer to buffers like our uniform buffer
+		descriptor are configured with a VkDescriptorBufferInfo struct. This struct specifies the buffer and 
+		region within it that contains the data for the desriptor.*/
+		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+			VkDescriptorBufferInfo bufferInfo{};
+			bufferInfo.buffer = uniformBuffers[i];
+			bufferInfo.offset = 0;
+			bufferInfo.range = sizeof(UniformBufferObject);
+	/*	If you are overwriting the whole buffer, like we are in this case, then it is also possible to use the 
+		VK_WHOLE_SIZE value for the range. The configuration of descriptors is updated using the 
+		vkUpdateDescriptorSets function, which takes an array of VkWriteDescriptorSet structs as the parameter. */
+			VkWriteDescriptorSet descriptorWrite{};
+			descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrite.dstSet = descriptorSets[i];
+			descriptorWrite.dstBinding = 0;
+			descriptorWrite.dstArrayElement = 0;
+	/*	The first two fields specify the descriptor set to update the binding. We gave our uniform buffer binding
+		an index of 0. Descriptors can also be arrays, so we also need to specify the first index in the array 
+		that we want to update. We're not using an array so the index is simply 0. */
+			descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrite.descriptorCount = 1;
+	/*	We need to specify the descriptor type again. It is possible to update multiple descriptors at once in
+		an array, starting at index dstArrayElement. The descriptorCount field specifies how many array elements
+		you want to update. */
+			descriptorWrite.pBufferInfo = &bufferInfo;
+			descriptorWrite.pImageInfo = nullptr; // optional
+			descriptorWrite.pTexelBufferView = nullptr; // optional
+	/*	The last field references an array with descriptorCount structs tbat actually configure descriptors.
+		It depends on the type of descriptor which one of the three you actually need to use. The pBufferInfo
+		field is used for descriptors that refer to buffer data, pImageInfo is used for descriptors that refer
+		to image data, and pTexelBufferView is for descriptors that refer to buffer views. Our descriptor is
+		based on buffers, so we're using pBufferInfo. */
+			vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+	/*	The updates are applied using vkUpdateDescriptorSets. It accepts two kinds of arrays as parameters: an
+		array of vkWriteDescriptorSet and an array of vkCopyDescriptorSet. The latter can be used to copy
+		descriptors to each other. 
+		
+		Now we need to update the recordCommandBuffer function to actually bind the right descriptor set for
+		each of the frame to the descriptors in the shader with vkCmdBindDescriptorSets. This needs to be done 
+		before the vkCmdDrawIndexed call. */
+		}
+	}
     
     void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemory) {
         VkBufferCreateInfo bufferInfo{};
@@ -912,6 +982,20 @@ private:
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
             vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+		
+			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, 
+									&descriptorSets[currentFrame], 0, nullptr);
+	/*	Unlike vertex and index buffers, descriptor sets are not unique to the graphics pipelines. Therefore we
+		need to specify if we want to bind descriptor sets to the graphics or compute pipeline. The next parameter
+		is the layout that the descriptors are based on. The next three parameters specify the index of the first
+		descriptor set, the number of sets to bind, and the array of sets to bind. The last two paramters specify
+		an array of offsets that are used for dynamic descriptors. 
+		
+		If you run the program right now, nothing is visible. The problem is that because of the Y-flip we did
+		in the projection matrix, the verties are now being drawn in counter-clockwise order instead of 
+		clockwise. This causes backface culling to kick in and prevents any geometry from being drawn. Go to the
+		createGraphicsPipeline function and modify the frontFace in VkPipelineRasterizationCreateInfo to correct
+		this. */
 
             vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
