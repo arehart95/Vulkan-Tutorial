@@ -797,13 +797,13 @@ private:
 		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 		allocInfo.descriptorPool = descriptorPool;
 		allocInfo.descriptorSetCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
-		allocInfo.pSetsLayout = layouts.data();
+		allocInfo.pSetLayouts = layouts.data();
 	/*	In this case we will create one descriptor set for each frame in flight, all with the same layout. 
 		Unfortunately we no need all of the copies of the layout because the next function expects an array
 		matching the number of sets. Add a class member VkDescriptorSet to hold the descriptor set handles
 		and allocate them with vkAllocateDescriptorSets. */
 		descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-		if (vkAllocateDescriptorSets(device, &allocInfo, nullptr, descriptorSets.data()) != VK_SUCCESS) {
+		if (vkAllocateDescriptorSets(device, &allocInfo, descriptorSets.data()) != VK_SUCCESS) {
 			throw std::runtime_error("failed to allocate descriptor sets!");
 		}
 	/*	You do not need to explicitly clean up descriptor sets because they will be automatically freed
