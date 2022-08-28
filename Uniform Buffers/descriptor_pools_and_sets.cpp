@@ -3,6 +3,109 @@
     from a pool like command buffers. This is called a descriptor pool. Create a new function 
     called createDescriptorPool and call it after createUniformBuffers. */
 
+
+/*	Alignment Requirements
+	One thing we have glossed over is how exactly the data in the C++ structure should match with the uniform
+	definition in the shader. It seems obvious to simply use the same types in both:
+	
+					struct UniformBufferObject {
+						glm::mat4 model;
+						glm::mat4 view;
+						glm::mat4 proj;
+					};
+					
+					layout(binding = 0) uniform UniformBufferObject {
+						mat4 model;
+						mat4 view;
+						mat4 proj;
+					} ubo;
+	
+	But that is not all there is to it. For example, modify the struct and shader to look like this:
+	
+					struct UniformBufferObject {
+						glm::vec2 foo;
+						glm::mat4 model;
+						glm::mat4 view;
+						glm::mat4 proj;
+					};
+					
+					layout(binding = 0) uniform UniformBufferObject {
+						vec2 foo;
+						mat4 model;
+						mat4 view;
+						mat4 proj;
+					} ubo;
+	
+	If you recompile the shader and run the program, the square is no longer appearing on screen. This is because
+	we have not taken into account the alignment requirements. 
+	
+	Vulkan expects the data in your structure to be aligned in a memory specific way:
+		
+			Scalars have to be aligned by N (= 4 bytes given 32 bit floats)
+			A vec2 must be aligned by 2N (= 8 bytes)
+			A vec3 or vec4 must be aligned by 4N (= 16 bytes)
+			A nested structure must be aligned by the base alignment of its members rounded up to a multiple of 16
+			A mat4 matrix must have the same alignment as a vec4
+	
+	The original shader with just three mat4 fields already met the alignment requirements. As each mat4 is
+	4 x 4 x 4 = 64 bytes in size, model has an offset of 0, view has an offset of 64, and proj has an offset of
+	128. All of these are multiples of 16 and that is why it worked fine. 
+	
+	The new structure starts with a vec2 which is only 8 bytes in size and therefore throws off all of the 
+	offsets. Now model has an offset of 8, view has an offset of 72, and proj has an offset of 136, none of which
+	are multiples of 16. To fix this problem, we can use the alignas specifier introduced in C++11:
+						
+					struct UniformBufferObject {
+						glm::vec2 foo;
+						alignas(16) glm::mat4 model;
+						glm::mat4 view;
+						glm::mat4 proj;
+					};
+	
+	Luckily there is a way to not have to think about these alignment requirements most of the time. We can define
+	GLM_FORCE_DEFAULT_ALIGNED_GENTYPES right before including GLM:
+		
+		#define GLM_FORCE_RADIANS
+		#define GLM_FORCE_DEFAULT_ALIGNED_GENTYPES 
+		#include <glm/glm.hpp>
+	
+	This will force GLM to use a version of vec2 and mat4 that have the alignment requirements already 
+	specified for us. If you add this definition then you can remove the alignas specifier. However, this can
+	break down if you use a nested structure. Consider the following C++ code:
+	
+					struct Foo {
+						glm::vec2 v;
+					};
+					
+					struct UniformBufferObject {
+						Foo f1;
+						Foo f2;
+					};
+	
+	And the following shader:
+	
+					struct Foo {
+						vec2 v;
+					};
+					
+					layout(binding = 0) uniform UniformBufferObject {
+						Foo f1;
+						Foo f2;
+					} ubo;
+
+	In this case f2 will have an offset of 8 whereas it should have an offset of 16 since it is a nested 
+	structure. In this case you must specify the alignment yourself:
+					
+					struct UniformBufferObject {
+						Foo f1;
+						alignas(16) Foo f2;
+					};
+	
+	These gotchas are a good reason to always be explicit about alignment, then you won't be caught offguard
+	by the strange symptoms of alignment error.
+					
+*/
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -105,9 +208,9 @@ struct Vertex {
 };
 
 struct UniformBufferObject {
-    glm::mat4 model;
-    glm::mat4 view;
-    glm::mat4 proj;
+    alignas(16)glm::mat4 model;
+    alignas(16)glm::mat4 view;
+    alignas(16)glm::mat4 proj;
 };
 
 const std::vector<Vertex> vertices = {
