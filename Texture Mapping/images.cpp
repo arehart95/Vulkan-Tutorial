@@ -1,5 +1,8 @@
-// Create a new function createTextureImage and call after createCommandPool
-
+/* Create a new function createTextureImage and call after createCommandPool. Also create a new
+	directory called textures next to the shaders directory to store texture images in. We will
+	load an image called texture.jpg from that directory. The library supports most common image
+	formats like JPEG, PNG, BMP, and GIF.
+*/
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -164,6 +167,9 @@ private:
 
     std::vector<VkBuffer> uniformBuffers;
     std::vector<VkDeviceMemory> uniformBuffersMemory;
+	
+	VkImage textureImage;
+	VkDeviceMemory textureImageMemory;
 
     VkDescriptorPool descriptorPool;
     std::vector<VkDescriptorSet> descriptorSets;
@@ -747,9 +753,104 @@ private:
 		vkUnmapMemory(device, stagingBufferMemory);
 	// 	Clean up the pixel array
 		stbi_image_free(pixels);
+	
+	/*	Although we could set up the shader to access the pixel values in the buffer, it's 
+		better to use image objects in Vulkan for this purpose. Image objects will make it easier
+		and faster to retrieve colors by allowing us to use 2D coordinates, for one. Pixels in an
+		image object are known as texels and that term will be used from here on out. Add two
+		new class members textureImage and textureImageMemory. From here we will create a new
+		function called createImage for abstract image creation like we did for buffers. */
+	
+	// 	Call createImage
+		createImage(texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+					VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, textureImage, textureMemory);
 		
 	}
 
+	void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, 
+					 VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image,
+					 VkDeviceMemory& imageMemory) {
+	/*	The width, height, format, tiling mode, usage, and memory properties have been made as
+		parameters because these will all vary between the images we'll create throughout the
+		tutorial. */
+	
+	// The parameters for an image are specified in a VkImageCreateInfo struct.
+		VkImageCreateInfo imageInfo{};
+		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageInfo.imageType = VK_IMAGE_TYPE_2D;
+		imageInfo.extent.width = static_cast<uint32_t>(texWidth);
+		imageInfo.extent.height = static_cast<uint32_t>(texHeight);
+		imageInfo.extent.depth = 1;
+		imageInfo.mipLevels = 1;
+		imageInfo.arrayLayers = 1;
+	/*	The image type, specified in the imageType field, tells Vulkan with what kind of coordinate 
+		system the texels in the image are going to be addressed. It is possible to create 1D, 2D, 
+		and 3D images. One dimensional images can be used to store an array of data or gradient, two
+		dimensional images are mainly used for textures, and three dimensional images can be used to
+		store voxel volumes, for example. The extent field specifies the dimensions of the image, 
+		basically how many texels there are on each axis. That's why depth must be 1 and not 0. The
+		texture will not be an array and will not be using mipmapping. */
+		imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+	//	We should use the same format for the texels as the pixels in the buffer, other wise copy operations will fail.
+		imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	/*	The tiling field can have one of two values:
+			VK_IMAGE_TILING_LINEAR:
+				Texels are laid out in row-major order like the pixels array.
+			VK_IMAGE_TILING_OPTIMAL:
+				Texels are laid out in an implementation defined order for optimal access.
+		Unlike the layout of an image, the tiling mode cannot be changed at a later time. In 
+		order to directly access texels in the memory of the image, then you must use 
+		VK_IMAGE_TILING_LINEAR. */
+		imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	/*	There are only two possible values for initialLayout: 
+			VK_IMAGE_LAYOUT_UNDEFINED:
+				Not usable by the GPU and the very first transition will discard the texels.
+			VK_IMAGE_LAYOUT_PREINITIALIZED:
+				Not usable by the GPU, but the first transition will preserve the texels.
+		There are a few situations where it will be necessary to preserve the texels during the first
+		transition. For example, if you wanted to use an image as a staging image in combination with
+		the VK_IMAGE_TILING_LINEAR layout. In that case you would want to upload the texel data to it
+		and then transition the image to a transfer source without losing the data. However, in this 
+		case, we're going to transition the image to be a transfer destination and then copy texel
+		data to it from a buffer object. */
+		imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	/*	The usage field has the same semantics as the one during buffer creation. The image is going
+		to be used as the destination for the buffer copy. We also want to be able to access the
+		image from the shader to color our mesh. */
+		imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	//	Only used by one queue family: the one that supports graphics and transfer operations.
+		imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+		imageInfo.flags = 0;
+	/*	The samples flags is realted to multisampling. This is only relevant for images that will
+		be used as attachments, so stick to one sample. There are some optional flags that are 
+		related to sparse images. Sparse images are images where only certain regions are actually
+		backed by memory. If you were using a 3D texture for a voxel terrain, you could use this
+		to  avoid allocating memory to store large volumes of "air" values. We will not use it in
+		this tutorial so it is left at the default value of 0. */
+		if (vkCreateImage(device, &imageInfo, nullptr, &textureImage) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create image!");
+		}
+		// Allocate memory:
+		VKMemoryRequirements memRequirements;
+		vkGetImageMemoryRequirements(device, textureImage, &memRequirements);
+		
+		VkMemoryAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = memRequirements.size;
+		allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+		
+		if (vkAllocateMemory(device, &allocInfo, nullptr, &textureImageMemory) != VK_SUCCESS) {
+			throw std::runtime_error("failed to allocate image memory!");
+		}
+		
+		vkBindImageMemory(device, textureImage, textureImageMemory, 0);
+	/*	Allocating memory for an image works in exactly the same way as allocating memory for a
+		buffer. Use vkGetImageMemoryRequirements instead of vkGetBufferMemoryRequirements and use
+		vkBindImageMemory instead of vkBindBufferMemory. */
+	}
+												   
+	
     void createVertexBuffer() {
         VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
