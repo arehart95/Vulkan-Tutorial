@@ -244,6 +244,9 @@ private:
 
     void cleanup() {
         cleanupSwapChain();
+		
+		vkDestroyImage(device, textureImage, nullptr);
+		vkFreeMemory(device, textureImageMemory, nullptr);
 
         vkDestroyPipeline(device, graphicsPipeline, nullptr);
         vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
@@ -780,7 +783,24 @@ private:
 		shader access: */
 		transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 							  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		
+		// Clean up staging buffer and its memory:
+		transitionImageLayout(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+							  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+		vkFreeMemory(device, stagingBufferMemory, nullptr);
 	}
+	
+	/*	If the application is run with validation layers enabled now, it will complain about the
+		access masks and pipeline stages in transitionImageLayout being invalid. They still need to
+		be set based on the layouts in the transition. There are two transitions to handle:
+			Undefined --> transfer destination:
+				Transfer writes that don't need to wait on anything
+			Transfer destination --> shader reading: 
+				Shader reads should wait on transfer writes, specifically the shader reads in 
+				the fragment shader, because that's where we're going to use the texture. 
+		Go down to createTransitionLayout and set the rules. */
 
 	void createImage(uint32_t width, uint32_t height, VkFormat format, VkImageTiling tiling, 
 					 VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image,
@@ -899,6 +919,62 @@ private:
 		operations that involve the resource must happen before the barrier, and which options that 
 		involve the resource must wait on the barrier. We need to do that despite using vkQueueWaitIdle
 		to manually synchronize. The right value depends on the old and new layout. */
+		
+	// 	The rules are specified using the following access masks and pipeline stages:
+		VkPipelineStageFlags sourceStage;
+		VkPipelineStageFlags destinationStage;
+		
+		if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+			barrier.srcAccessMask = 0;
+			barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			
+			sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+			destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		} else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+			barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			
+			sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+			destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		} else {
+			throw std::invalid_argument("unsupported layout transition!");
+		}
+	/*	Transfer writes must occur in the pipeline transfer stage. Since the writes don't have 
+		anything to to wait on, you can specify and empty access mask and the earliest possible 
+		pipeline stage VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT for the pre-barrier operations. It should
+		be noted that VK_PIPELINE_STAGE_TRANSFER_BIT is not a real stage within the graphics and 
+		compute pipelines. It is a pesudo-stage where transfers happen. 
+		
+		The image will be written in the same pipeline stage as subsequently read by the fragment
+		shader, which is why we specify shader reading access in the fragment shader pipeline stage.
+		
+		If we need to do more transitions in the future, then we will extent the function. The
+		application itself will now run successfully (without visual changes).
+		
+		One thing to note is that command buffer submission results in implicit VK_ACCESS_HOST_WRITE_BIT
+		synchronization at the beginning. Since the transitionImageLayout function executes a command
+		buffer with only a single command, you could use this implicit synchronization and set 
+		srcAccessMask to 0 if you ever needed a VK_ACCESS_HOST_WRITE_BIT dependency in a layout transition.
+		It's up to you if you want to be explicit or not. Though take relying on these OpenGL-like
+		hidden operations with a grain of salt.
+		
+		There is also a special type of image layout that supports all operations: VK_IMAGE_LAYOUT_GENERAL.
+		The problem is that it does not necessarily offer the best performance for any operation. It is 
+		required for some special cases, like using an image as both input and output, or for reading
+		an image after it has left the preinitialized layout.
+		
+		All of the helper functions that submit commands so far have been set up to execute 
+		synchronously by waiting for the queue to become idle. For practical applications it is
+		recommended to combine these operations in a single command buffer and execute them 
+		asynchronously for higher throughput, especially the transitions and copy in the 
+		createTextureImage function. Try to experiment with this by creating a setupCommandBuffer
+		that the helper functions record commands into, and add a flushSetupCommands to execute
+		the commands that have been recorded so far. It's best to do this after the texture mapping
+		works to check if the texture resources are still set up correctly. 
+		
+		Finish the createTextureImage function by cleaning up the staging buffer and its memory
+		at the end. */
+	
 		VkCmdPipelineBarrier(
 			commandBuffer,
 			0 /* TO DO */, 0,
