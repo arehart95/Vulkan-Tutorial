@@ -7,6 +7,26 @@
 	an image view for the texture image. Add a class member to hold a VkImageView and create a new
 	function createTextureImageView called after createTextureImage. */
 
+/*	Samplers (to be started after finishing the texture image chunk):
+	It is possible for shaders to read texels directly from images, but it is not very common when
+	they are used as textures. Textures are usually accessed through samplers, which will apply
+	filtering and transformations to compute the final color that is retrieved. 
+	
+	These filters are helpful to deal with problems like oversampling. Consider a texture that is
+	mapped to geometry with more fragments than texels. If you took the closest texel for the texture
+	coordinate in each fragment the result would be a very pixelated image. If you combined the four
+	closest texels through linear interpolation then you would get a much smoother result. The latter
+	is preferred in conventional graphics applications though the former has some used as well. A 
+	sampler object automatically applies this filtering for you when reading a color from the texture.
+	
+	Undersampling is the opposite problem, where there are more texels than fragments. This will lead
+	to artifacts when sampling high frequency patterns like a checkerboard texture at a sharp angle:
+	the background turns into a blurry mess. The solution is anisotropic filtering, which can also be
+	applied automatically by a sampler. Aside from these, a sampler can also take care of transformations. 
+	It determines what happens when you try to read texels outisde the image through addressing mode. We 
+	will now create a function createTextureSampler to set up the sampler object. Call it after 
+	createTextureImageView. */
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -217,6 +237,8 @@ private:
         createFramebuffers();
         createCommandPool();
         createTextureImage();
+		createTextureImageView();
+		createTextureSampler();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -743,6 +765,50 @@ private:
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
+	
+	void createTextureImageView() {
+		textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB);	
+	}
+	
+	void createTextureSampler() {
+	// 	Samplers are configured through a VkSamplerCreateInfo structure:
+		VkSamplerCreateInfo samplerInfo{};
+		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		samplerInfo.magFilter = VK_FILTER_LINEAR;
+		samplerInfo.minFilter = VK_FILTER_LINEAR;
+	/*	The magFilter and minFilter fields specify how to interpolate texels that are maginified
+		or minified. Magnification concerns the oversampling problem and minification concerns
+		undersampling. The choices are VK_FILTER_NEAREST and VK_FILTER_LINEAR. */
+		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	/*	The addressing mode can be specified per axis using the addressMode fields. Note that
+		the axes are called U, V, and W instead of X, Y, and Z. This is the convention for 
+		texture space coordinates:
+			VK_SAMPLER_ADDRESS_MODE_REPEAT:
+				Repeat the texture when going beyond the image dimensions.
+			VK_SAMPLER_ADDRESS_MODE_MIRRORED:
+				Like repeat, but inverts the coordinates to mirror the image. 
+			VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE:
+				Takes the color of the edge closest to the coordinate beyond the image dimensions.
+			VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE:
+				Like clamp to edge, but instead uses the edge opposite to the closest edge.
+			VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER:
+				Returns a solid coloe when sampling beyond the dimensions of the image.
+		In this case, we are not going to sample outside of the border so it does not really matter
+		which addressing mode we use right now. However, repeat mode might be the most common because
+		it can be used for textures like floors and walls. */
+		samplerInfo.anisotropicEnable = VK_TRUE;
+		samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+	/*	These two fields specify if anisotropic filtering should be turned on. There is no reason
+		not to use this unless performance is a concern. The maxAnisotropy field limits the amount
+		of texel samples that can be used to calculate the final color. A lower value results in
+		better performance by lower quality results. To figure out which value we can use, we need
+		to retrive the properties of the physical device:
+	*/
+		
+		
+	}
 
 	VkImageView createImageView(VkImage image, VkFormat format) {
 		VkImageViewCreateInfo viewInfo{};
@@ -797,9 +863,6 @@ private:
         vkBindImageMemory(device, image, imageMemory, 0);
     }
 
-	void createTextureImageView() {
-		textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB);	
-	}
 	
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout) {
         VkCommandBuffer commandBuffer = beginSingleTimeCommands();
