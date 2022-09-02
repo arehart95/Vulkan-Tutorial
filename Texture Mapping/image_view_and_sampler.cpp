@@ -187,6 +187,7 @@ private:
     VkImage textureImage;
     VkDeviceMemory textureImageMemory;
 	VkImageView textureImageView;
+	VkSampler textureSampler;
 
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
@@ -283,6 +284,7 @@ private:
 
         vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
+		VkDestroySampler(device, textureSampler, nullptr);
 		VkDestroyImageView(device, textureImageView, nullptr);
 		
         vkDestroyImage(device, textureImage, nullptr);
@@ -439,6 +441,9 @@ private:
         }
 
         VkPhysicalDeviceFeatures deviceFeatures{};
+	// 	Request support for anisotropic filtering
+		deviceFeatures.samplerAnisotropy = VK_TRUE;
+	//	Update isDeviceSuitable to check if it is available to the graphics card.
 
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -805,9 +810,43 @@ private:
 		of texel samples that can be used to calculate the final color. A lower value results in
 		better performance by lower quality results. To figure out which value we can use, we need
 		to retrive the properties of the physical device:
-	*/
+				VkPhysicalDeviceProperties properties{};
+				vkGetPhysicalDeviceProperties(physicalDevice, &properties);
+		If you look at the documentation for for the VkPhysicalDeviceProperties struct, you'll
+		notice it contains a VkPhysicalDeviceLimits member named limits. This struct in turn has a
+		member named maxSamplerAnisotropy, and this is the maximum value we can specify for 
+		maxAnisotropy. If we want to go for a maximum quality, we can simply use that value directly.
 		
-		
+		You can either query the properties at the beginning of your program and then pass them around to
+		the functions that need them, or query them in the createTextureSampler function itself. */
+		samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+	/*	The borderColor field specifies which color is returned when sampling beyond the image with clamp
+		to border addressing mode. It is possible to return black, white, or transparent in either float
+		or int formats. You cannot specify an arbitrary color. */
+		samplerInfo.unnormalizeCoordinates = VK_FALSE;
+	/*	The unnormalizedCoordinates field specifies which coordinate system you want to use to address
+		texels in an image. If the field is VK_TRUE, you can simply uses coordinates within the [0, texWidth} 
+		and [0, texHeight] range. Otherwise the texels are addressed using the [0, 1] range on all axes. 
+		Real world applications almost always used normalized coordinates because then it is possible to use
+		textures of varying resolutions with the same exact coordinates. */
+		samplerInfo.compareEnable = VK_FALSE;
+		samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+	/*	If a comparison function is enabled, then texels will first be compared to a value, and the 
+		result of that comparison is used in filtering operations. This is mainly used for percentage-
+		closer filtering on shadow maps (https://developer.nvidia.com/gpugems/gpugems/part-ii-lighting-and-shadows/chapter-11-shadow-map-antialiasing). */
+		samplerInfo.mipMapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		samplerInfo.mipLodBias = 0.0f;
+		samplerInfo.minLod = 0.0f;
+		samplerInfo.maxLod = 0.0f;
+	/*	All of these fields apply to mipmapping, which has its own chapter later. 
+		The functioning of the sampler is now fully defined. Add a class member VkSampler to hold
+		the handle of the sampler and create the sampler with vkCreateSampler: */
+		if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create texture sampler!");
+		}
+	/*	If you run the application right now, there will be a validation error regarding anisotropy. 
+		This is because anisotropic filtering is an optional device feature, and we have to update
+		createLogicalDevice to request it. */
 	}
 
 	VkImageView createImageView(VkImage image, VkFormat format) {
@@ -1374,6 +1413,16 @@ private:
             SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
             swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
         }
+	//	Check that anisotropic filtering is available to the graphics card:
+		VkPhysicalDeviceFeatures supportedFeatures;
+		vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
+	/*	The vkGetPhysicalDeviceFeatures repurposes the VkPhysicalDeviceFeatures struct to indicate
+		which features are supported rather than requested by setting the boolean values.
+		
+		Instead of enforcing the availability of anisotropic filtering, it is also possible to simply not
+		use it by conditionally setting:
+				samplerInfo.anisotropy = VK_FALSE;
+				samplerInfo.maxAnisotropy = 1.0f; */
 
         return indices.isComplete() && extensionsSupported && swapChainAdequate;
     }
