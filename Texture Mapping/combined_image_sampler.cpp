@@ -1,3 +1,13 @@
+/*  This time we are going to learn a new type of descriptor: the combined image sampler. This
+    descriptor makes it possible for shaders to access an image resource through a sampler object
+    like the one we have just created. 
+    
+    To start, we must modify the descriptor layout, descriptor pool, and descriptor set to include
+    such a combined image sampler. After that, we're going to add texture coordinates to Vertex and
+    modify the fragment shader to read colors from the texture instead of just iterpolating the vertex
+    colors. Head to createDescriptorSetLayout to get started. */
+
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -548,11 +558,27 @@ private:
         uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         uboLayoutBinding.pImmutableSamplers = nullptr;
         uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
+	//	Add a VkDescriptorSetLayoutBinding for a combined image sampler descriptor:
+		VkDescriptorSetLayoutBinding samplerLayoutBinding{};
+		samplerLayoutBinding.binding = 1;
+		samplerLayoutBinding.descriptorCount = 1;
+		samplerLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPELR;
+		samplerLayoutBinding.pImmutableSamplers = nullptr;
+		samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAMGNET_BIT;
+		
+		std::array<VkDescriptorSetLayoutBinding, 2> bindings = {uboLayoutBinding, samplerLayoutBinding};
+		
         VkDescriptorSetLayoutCreateInfo layoutInfo{};
         layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layoutInfo.bindingCount = 1;
-        layoutInfo.pBindings = &uboLayoutBinding;
+        layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size()); // changed from 1
+        layoutInfo.pBindings = bindings.data(); // changed from ubo binding
+	/*	Make sure to set the stageFlags to indicate that we intend to use the combined image sampler
+		descriptor in the fragment shader. It is possible to use texture sampling in the vertex
+		shader, for example to dynamically deform a grid of vertices by a heightmap.
+		
+		We must also create a larger descriptor pool to make room for the allocation of the combined
+		image sampler by adding another VkPoolSize to the VkDescriptorPoolCreateInfo. Go to the 
+		createDescriptorPool function and modify it as required. */
 
         if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
             throw std::runtime_error("failed to create descriptor set layout!");
@@ -944,21 +970,39 @@ private:
     }
 
     void createDescriptorPool() {
-        VkDescriptorPoolSize poolSize{};
-        poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSize.descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+	//	Modified struct
+        std::array<VkDescriptorPoolSize, 2> poolSizes{};
+		poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		poolSizes[0].descriptorCount = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
+		poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		poolSizes[1].type = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes = &poolSize;
+        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size()); // changed from 1
+        poolInfo.pPoolSizes = poolSizes.data(); // changed from &poolSize
         poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
 
         if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
             throw std::runtime_error("failed to create descriptor pool!");
         }
     }
-
+/*	Inadequate descriptor pools are a good example of a problem that the validation layers will
+	not catch: as of Vulkan 1.1, vkAllocateDescriptorSets may fail with the error code 
+	VK_ERROR_POOL_OUT_OF_MEMORY if the pool is not sufficiently large, but the driver may also
+	try to solve this problem internally. This means that sometimes the driver will let us get
+	away with an allocation that exceeds the limits of the descriptor pool. Other times, 
+	vkAllocateDescriptorSets will fail and return VK_ERROR_POOL_OUT_OF_MEMORY. This can be
+	frustrating if the allocation succeeds on some machines but fails on others.
+	
+	SInce Vulkan shifts the responsibility for the allocation to the driver, it is not longer
+	a strict requirement to only allocate as many descriptors of a certain type as specified
+	by the corresponding descriptorCount members for the creation of the descriptor pool. 
+	However, it remainds the best practice to do so, and in the furue VK_LAYER_KHRONOS_validation
+	will warn about this type of problem. 
+	
+	The final step is to bind the actual image and sampler resources to the descriptors in the
+	descriptor set in the function below. */
     void createDescriptorSets() {
         std::vector<VkDescriptorSetLayout> layouts(MAX_FRAMES_IN_FLIGHT, descriptorSetLayout);
         VkDescriptorSetAllocateInfo allocInfo{};
@@ -977,17 +1021,36 @@ private:
             bufferInfo.buffer = uniformBuffers[i];
             bufferInfo.offset = 0;
             bufferInfo.range = sizeof(UniformBufferObject);
+	//	Adding imageInfo struct:
+			VkDescriptorImageInfo imageInfo{};
+			imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			imageInfo.imageView = textureImageView;
+			imageInfo.sampler = textureSampler;
+	/*	The resources for a combined image sampler structure must be specified in a 
+		VkDescriptorImageInfo structure, just like the buffer resource for a uniform buffer
+		descriptor is specified in VkDescriptorBufferInfo. This is where the objects from the 
+		previous chapter come together: */	
+			std::array<VkWriteDescriptorSet, 2> descriptorWrites{};
+			
+			descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			descriptorWrites[0].dstSet = descriptorSets[i];
+			descriptorWrites[0].dstBinding = 0;
+			descriptorWrites[0].dstArrayElement = 0;
+			descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			descriptorWrites[0].descriptorCount = 1;
+			descriptorWrites[0].pBufferInfo = &bufferInfo;
+			
+            descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrites[1].dstSet = descriptorSets[i];
+			descriptorWrites[1].dstBinding = 1;
+            descriptorWrites[1].dstArrayElement = 0;
+            descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            descriptorWrites[1].descriptorCount = 1;
+            descriptorWrites[1].pImageInfo = &imageInfo;
 
-            VkWriteDescriptorSet descriptorWrite{};
-            descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrite.dstSet = descriptorSets[i];
-            descriptorWrite.dstBinding = 0;
-            descriptorWrite.dstArrayElement = 0;
-            descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            descriptorWrite.descriptorCount = 1;
-            descriptorWrite.pBufferInfo = &bufferInfo;
-
-            vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+            vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(),
+								   0, nullptr);
+		//	The descriptors must be updated with this image info, just like the buffer. 
         }
     }
 
