@@ -81,11 +81,13 @@ struct SwapChainSupportDetails {
     std::vector<VkSurfaceFormatKHR> formats;
     std::vector<VkPresentModeKHR> presentModes;
 };
-
+// 	Modify the struct to include a vec 2 for texture coordinates and add a VkVertexAttributeDescription so we
+//	can access texture coordinates as input in the vertex shader:
 struct Vertex {
     glm::vec2 pos;
     glm::vec3 color;
-
+	glm::vec2 texCoord;
+	
     static VkVertexInputBindingDescription getBindingDescription() {
         VkVertexInputBindingDescription bindingDescription{};
         bindingDescription.binding = 0;
@@ -107,6 +109,12 @@ struct Vertex {
         attributeDescriptions[1].location = 1;
         attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
         attributeDescriptions[1].offset = offsetof(Vertex, color);
+		// New description for texCoord
+		attributeDescriptions[2].binding = 0;
+		attributeDescriptions[2].location = 2;
+		attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+		attributeDescriptions[2].offset = offsetof(Vertex, texCoord);
+		
 
         return attributeDescriptions;
     }
@@ -118,13 +126,14 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 proj;
 };
 
+// Filling in the square with texture by using coordinates from 0,0 in the top left corner to 1,1 in the bottom right
 const std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{0.5f, -0.5f},  {0.0f, 1.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}
+    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+    {{0.5f, -0.5f},  {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
 };
-
+//	Now we need to update the shaders to sample color from the texture. See shader file. 
 const std::vector<uint16_t> indices = {
     0, 1, 2, 2, 3, 0
 };
@@ -1050,7 +1059,9 @@ private:
 
             vkUpdateDescriptorSets(device, static_cast<uint32_t>(descriptorWrites.size()), descriptorWrites.data(),
 								   0, nullptr);
-		//	The descriptors must be updated with this image info, just like the buffer. 
+		/*	The descriptors must be updated with this image info, just like the buffer. With that finished there is 
+			one more thing to do: set up the actual texture coordinates for each vertex. From here we will modify the
+			Vertex struct at the top of the program. */	
         }
     }
 
