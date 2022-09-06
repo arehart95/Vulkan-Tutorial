@@ -33,6 +33,10 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+// 	Load the tiny object library
+#define TINYOBJLOADER_IMPLEMENTATION
+#include <tiny_obj_loader.h> 
+
 #include <iostream>
 #include <fstream>
 #include <stdexcept>
@@ -46,6 +50,7 @@
 #include <array>
 #include <optional>
 #include <set>
+#include <unordered_map>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -188,8 +193,9 @@ private:
     VkDeviceMemory textureImageMemory;
     VkImageView textureImageView;
     VkSampler textureSampler;
-
-	std::vector<Vertex> vertices; // New vertex and index constants; changed the vkCmdBindIndexBuffer parameter
+	
+// New vertex and index constants; changed the vkCmdBindIndexBuffer parameter
+	std::vector<Vertex> vertices; 
 	std::vector<uint32_t> indices;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
@@ -242,7 +248,8 @@ private:
         createFramebuffers();
         createTextureImage();
         createTextureImageView();
-        createTextureSampler();
+        createTextureSampler();]
+		loadModel();
         createVertexBuffer();
         createIndexBuffer();
         createUniformBuffers();
@@ -999,6 +1006,88 @@ private:
         endSingleTimeCommands(commandBuffer);
     }
 
+	void loadModel() {
+	//	A model is loaded into the library's data structures by calling the tinyobj::LoadObj function
+		tinyobj::attrib_t attrib;
+		std::vector<tinyobj::shape_t> shapes;
+		std::vector<tinyobj::shape_t> materials;
+		string::string warn, err;
+		
+		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH.c_str()))
+		{
+			throw std::runtime_error(warn + err);
+		}
+	/*	An OBJ file consists of positions, normals, texture coordinates, and faces. Faces consist
+		of an arbitrary amount of vertices, where each vertex refers to a position, normal, and/or
+		texture coordinate by index. This makes it possible not just to reuse entire vertices but
+		also individual attributes. 
+		
+		The attrib container holds all of the positions, normals, and texture coordinates in its
+		attrib.vertices, attrib.normals, and attrib.texcoords vectors. The shapes container contains
+		all of the separate objects and their faces. Each face consists of an array of vertices,
+		and each vertex contains the indices of the position, normal, and texture coordinate attributes.
+		OBJ models can also define a material and texture pre face but we will ignore those.
+		
+		THe err string contains errors and the warn string contains warnings that occured while loading
+		the file, like a missing material definition. Loading only really fails if the LoadObj function 
+		returns false. As mentioned before, faces in OBJ files can contain an abitrary amount of vertices
+		whereas our application can only render triangles. Luckily, the LoadObj has an optional parameter
+		to automatically triangulate those faces which is enabled by default.
+		
+		Our next step is to combine all of the faces in the file into a single model so we just iterate
+		over all of the shapes: */
+		std::unordered_map<Vertex, uint32_t> uniqueVertices{};
+		
+		for (const auto& shape : shapes) {
+		//	Directly iterate over the vertices and place them into our vertices vector
+			for (const auto& index : shape.mesh.indices) {
+				Vertex vertex{};
+				
+				vertices.push_back(vertex);
+				indices.push_back(indices.size());
+			}
+		
+	/*	For simplicity, we will assume that every vertex is unique for now, hence the simple auto-increment
+		indices. The index variable is of type tinyobj::index_t, which contins the vertex_index, normal_index,
+		and texcoord_index members. We need to use these indices to look up the actual vertex attributes in the
+		attrib arrays: */
+			vertex.pos = {
+				attrib.vertices[3 * index.vertex_index + 0],
+				attrib.vertices[3 * index.vertex_index + 1],
+				attrib.vertices[3 * index.vertex_index + 2]
+			};
+		
+			vertex.texCoord = {
+				attrib.texcoords[2 * index.texcoord_index + 0],
+				1.0f - attrib.texcoords[2 * index.texcoord_index + 1] // flipped vertical component to render model correctly
+			};
+		
+			vertex.color = {1.0f, 1.0f, 1.0f};
+			
+			if (uniqueVertices.count(vertex) == 0 {
+				uniqueVertices[vertex] = static_cast<uint32_t>(vertices.size());
+				vertices.push_back(vertex);
+			}
+			
+			indices.push_back(uniqueVertices[vertex]);
+		
+		}
+	}
+	/*	Unfortunately the attrib.vertices array is an array of float values instead of something like
+		glm::vec3, so we have to multiply the index by 3. Similarly there are two texture coordinates 
+		per entry. The offsets of 0, 1, and 2 are used to access the X, Y, and Z components, or the
+		U and V components for the texture coordinates.
+			
+	
+		We are still not taking advantage of the index buffer yet. The vertices vector contains a lot of
+		duplicated vertex data, because may vertices are included in multiple triangles. We should only
+		keep the unique vertices and use the index buffer to reuse them whenever they come up. A 
+		straightforward way to do this is with a map or unordered_map to keep track of the unique vertices
+		and their respective indices. */
+			
+	
+	
+	
     void createVertexBuffer() {
         VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
@@ -1255,6 +1344,7 @@ private:
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
             vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32); // changed from UINT16 to UINT32
+		//	Now we will create a loadModel function, called before the vertex and index buffers are created
 
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
