@@ -27,6 +27,7 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -140,7 +141,24 @@ struct Vertex {
 
         return attributeDescriptions;
     }
+	//	Implement the equality test and override the == operator
+	bool operator==(const Vertex& other) const {
+		return pos == other.pos && other.color && texCoord == other.texCoord;
+	}
 };
+
+/*	A hash function for Vertex is implemented by specifying a template specialization for
+	std::hash<T>. Hash functions are complex but cppreference.com recommends the following approach
+	combining the fields of a struct to create a decent quality hash function: */
+namespace std {
+	template<> struct hash<Vertex> {
+		size_t operator()(Vertex const& vertex) const {
+			return((hash<glm::vec3>()(vertex.pos) ^
+					(hash<glm::vec3>()(vertex.color) << 1)) >> 1) ^
+					(hash<glm::vec2>()(vertex.texCoord) << 1);
+		}
+	};
+}
 
 struct UniformBufferObject {
     alignas(16) glm::mat4 model;
@@ -1061,6 +1079,10 @@ private:
 				attrib.texcoords[2 * index.texcoord_index + 0],
 				1.0f - attrib.texcoords[2 * index.texcoord_index + 1] // flipped vertical component to render model correctly
 			};
+	/*	Unfortunately the attrib.vertices array is an array of float values instead of something like
+		glm::vec3, so we have to multiply the index by 3. Similarly there are two texture coordinates 
+		per entry. The offsets of 0, 1, and 2 are used to access the X, Y, and Z components, or the
+		U and V components for the texture coordinates.*/
 		
 			vertex.color = {1.0f, 1.0f, 1.0f};
 			
@@ -1069,25 +1091,28 @@ private:
 				vertices.push_back(vertex);
 			}
 			
-			indices.push_back(uniqueVertices[vertex]);
-		
-		}
-	}
-	/*	Unfortunately the attrib.vertices array is an array of float values instead of something like
-		glm::vec3, so we have to multiply the index by 3. Similarly there are two texture coordinates 
-		per entry. The offsets of 0, 1, and 2 are used to access the X, Y, and Z components, or the
-		U and V components for the texture coordinates.
-			
-	
-		We are still not taking advantage of the index buffer yet. The vertices vector contains a lot of
+			indices.push_back(uniqueVertices[vertex]);]
+				
+	/*	We are still not taking advantage of the index buffer yet. The vertices vector contains a lot of
 		duplicated vertex data, because may vertices are included in multiple triangles. We should only
 		keep the unique vertices and use the index buffer to reuse them whenever they come up. A 
 		straightforward way to do this is with a map or unordered_map to keep track of the unique vertices
-		and their respective indices. */
-			
-	
-	
-	
+		and their respective indices.
+		
+		Each time we read a vertex from the OBJ file, we check if we've already seen a vertex with the
+		exact same position and texture coordinates before. If not, we add it to vertices and store it in
+		the index in the uniqueVertices container. After that we add the index of the new vertex io indices.
+		If we have seen the exact same vertex before, then we look up its index in uniqueVertices and store
+		that index in indices. 
+		
+		At this moment, the program will fail to compile because using a user-defined type like our 
+		Vertex struct as key in a hash table requires us to implement two functions: equality test
+		and hash calculation. The former is easy to implement by overriding the == operator in the
+		Vertex structure. */
+		
+		}
+	}
+
     void createVertexBuffer() {
         VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
@@ -1678,3 +1703,4 @@ int main() {
 
     return EXIT_SUCCESS;
 }
+
