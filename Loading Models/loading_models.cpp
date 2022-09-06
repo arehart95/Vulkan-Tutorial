@@ -27,9 +27,14 @@
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define 
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/hash.hpp>
+/*	The hash functions are defined in the gtx folder which means that technically it is still an
+	experimental extension to GLM. Therefore we need to define GLM_ENABLE_EXPERIMENTAL to use it.
+	It also means that the API could change with a new version of GLM in the future but in practice
+	it is very stable. */
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
