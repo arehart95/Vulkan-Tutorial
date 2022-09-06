@@ -8,7 +8,19 @@
 	supported by this file format, such as skeletal animation. We will load mesh data from an OBJ 
 	model in this chapter, but we will focus more on integrating the mesh data with the program
 	itself rather than the details of loading it from a file.
-*/
+	
+	We will use the tinyobjectloader library to load vertices and faces from an OBJ file. It is fast
+	and easy to integrate because it is a single file library like stb_image. Download the 
+	tiny_obj_loader.h to a folder in your library directory. Use the version from the master branch
+	because the latest official release it outdated.
+	
+	We won't be enabling lighting yet so it helps to use a sample model that has lighting baked into
+	the texture. This example will use the Viking room model by nigelgoh on Sketchfab. Download
+	the obj and png file. The model file (obj) goes into a new models directory next to shaders
+	and the texture image (png) goes into textures. 
+	
+	Start by putting two new configuration variables in the prgoram to define the model and texture
+	paths. */
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -37,6 +49,10 @@
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
+
+// 	Path to texture and model, update createTextureImage to use this path.
+const std::string MODEL_PATH = "models/viking_room.obj";
+const std::string TEXTURE_PATH = "textures/viking_room.png";
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -127,22 +143,6 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 proj;
 };
 
-const std::vector<Vertex> vertices = {
-    {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
-};
-
-const std::vector<uint16_t> indices = {
-    0, 1, 2, 2, 3, 0,
-    4, 5, 6, 6, 7, 4
-};
 
 class HelloTriangleApplication {
 public:
@@ -189,6 +189,8 @@ private:
     VkImageView textureImageView;
     VkSampler textureSampler;
 
+	std::vector<Vertex> vertices; // New vertex and index constants; changed the vkCmdBindIndexBuffer parameter
+	std::vector<uint32_t> indices;
     VkBuffer vertexBuffer;
     VkDeviceMemory vertexBufferMemory;
     VkBuffer indexBuffer;
@@ -814,7 +816,9 @@ private:
 
     void createTextureImage() {
         int texWidth, texHeight, texChannels;
-        stbi_uc* pixels = stbi_load("textures/texture.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	//	Added TEXTURE_PATH.c_str. Remove global vertices and indices arrays and replace them with non-const
+	//	containers as class members.
+        stbi_uc* pixels = stbi_load(TEXTURE_PATH.c_str, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
         VkDeviceSize imageSize = texWidth * texHeight * 4;
 
         if (!pixels) {
@@ -1250,7 +1254,7 @@ private:
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 
-            vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32); // changed from UINT16 to UINT32
 
             vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
 
