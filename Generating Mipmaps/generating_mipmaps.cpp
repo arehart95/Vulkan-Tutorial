@@ -888,14 +888,37 @@ private:
 		
 		Now we are going to write a function that generates mipmaps: */
 		
-	//	Call to generateMipmaps after finishing the function
-		generateMipmaps(textureImage, texWidth, texHeight, mipLevels);
+	//	Call to generateMipmaps after finishing the function; added image format parameter
+		generateMipmaps(textureImage, VK_FORMAT_R8G8B8A8_SRGB, texWidth, texHeight, mipLevels);
 
         vkDestroyBuffer(device, stagingBuffer, nullptr);
         vkFreeMemory(device, stagingBufferMemory, nullptr);
     }
 	
-	void generateMipmaps(VkImage, int32_t texWidth, int32_t texHeight, uint32_t mipLevels) {
+	//	Added image format parameter
+	void generateMipmaps(VkImage image, VkFormat imageFormat, int32_t texWidth, int32_t texHeight, uint32_t mipLevels) {
+	//	Request the properties of the texture image format
+		VkFormatProperties formatProperties;
+		vkGetPhysicalDeviceFormatProperties(physicalDevice, imageFormat, &formatProperties);
+	/*	The VkFormatProperties struct has three fields named linearTilingFeatures, 
+		optimalTilingFeatures, and bufferFeatures that each describe how the format can be used 
+		depending on the way it is used. We create a texture image with the optimal tiling format,
+		so we need to check optimalTilingFeatures. Support for the linear filtering feature can be
+		checked with the VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT. */
+		if (!formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
+			throw std::runtime_error("texture image format does not support linear blitting!");
+	/*	There are two alternatives that could be used. You could implement a function that searches
+		the common texture image formats for one that does support linear blitting, or you could
+		implement the mipmap generation in software with a library like stb_image_resize. Each mip
+		level can then be loaded into the image in the same way that you loaded the original image.
+		
+		It should be noted that it is uncommon practice to generate the mipmap levels at runtime. 
+		Usually they are pregenerated and stored in the texture file alongside the base devel to 
+		improve loading speed. Implementing resizing in software and loading multiple levels from a
+		file is left as an exercise to the reader.
+		
+		Next go to createTextureSampler. */
+		
 		VkCommandBuffer commandBuffer = beginSingleTimeCommands();
 		
 		VkImageMemoryBarrier barrier{};
@@ -1008,6 +1031,11 @@ private:
 		endSingleTimeCommands(commandBuffer);
 		
 	}
+	/*	It is very convenient to use a built-in function like vkCmdBlit image to generate all
+		the mip levels, but unfortunately it is not guaranteed to be supported on all platforms.
+		It requires the texture image format we use to support linear filtering, which can be
+		checked with the vkGetPhysicalDeviceFormatProperties function. We will add a check to
+		generateMipmaps function for this. */	
 
 	//	Update call to createImageView with mipLevels parameter
     void createTextureImageView() {
@@ -1032,7 +1060,23 @@ private:
         samplerInfo.unnormalizedCoordinates = VK_FALSE;
         samplerInfo.compareEnable = VK_FALSE;
         samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	/*	Vulkan allows us to specify minLod, maxLod, mipLodBias, and mipmapMode. If
+		samplerInfo.mipmapMode is VK_SAMPLER_MIPMAP_MODE_NEAREST, lod selects the mip level
+		to sample from. If the mode is VK_SAMPLER_MIPMAP_MODE_LINEAR, lod is used to select two
+		mip levels to be sampled. Those levels are sampled and the results are linearly blended.
+		If the object is close to the camera, magFilter is used as the filter. If the object is 
+		further from the camera, minFilter is used. Normally, lod is non-negative and is only 0 
+		when close to the camera. mipLoadBias lets us force Vulkan to use lower lod and level than
+		it would normally use. 
+		
+		To see the mipmap results, we need to choose values for the sampler. We've already set the
+		minFilter and magFilter, so now we will set minLod, maxLod, mipLodBias, and mipmapMode. */
+		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		samplerInfo.minLod = 0.0f; // optional
+		samplerInfo.maxLod = static_cast<float>(mipLevels);
+		samplerInfo.mipLoaBias = 0.0f; // optional
+	/*	To allow the full range of mip levels to be used, we set minLod to 0.0f and maxLod to the
+		number of mip levels. There is no reason to change the lod value so mipLodBias is set to 0.0f. */
 
         if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
             throw std::runtime_error("failed to create texture sampler!");
