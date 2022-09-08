@@ -1,3 +1,29 @@
+/*	This program can now load multiple levels of details for textures which fix artifacts when
+	rendering objects far away from the viewer. The image is now a lot smoother, however on 
+	closer inspection you will notice jagged saw-like patterns along the edges of drawn 
+	geometric shapes.
+	
+	This undesired effect is called aliasing. It is a result of a limited number of pixels that
+	are available for rendering. It will always be visible to some extent because there are no
+	displays with unlimited resolution. There are a slew of ways to fix it, and the one we will
+	focus on is multisampling anti-aliasing (MSAA). 
+	
+	In ordinary rendering, the pixel color is determined based on a single sample point in which
+	most cases is the center of the target pixel on screen. If part of the drawn line passes 
+	through a certain pixel but doesn't cover the sample point, that pixel will be left blank,
+	leading to the jagged effect. 
+	
+	MSAA uses multisample points per pixel to determine its final color. More samples lead to 
+	better results, but it is more computationally expensive. We will focus on using the 
+	maximum available sample count. This may not always be the best approach and it might be
+	better to use less samples for the sake of higher performance if the final result meets
+	your quality demands. 
+	
+	We need to first determine how many samples our hardware can use. Most modern GPUs support 
+	at least 8 samples but that number is not guaranteed to be the same everywhere. Add a new
+	class member to keep track of it. */
+
+
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
@@ -153,6 +179,14 @@ private:
     VkSurfaceKHR surface;
 
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+//	New member for MSAA samples:
+	VkSampleCountFlagBits msaaSamples = VK_SAMPLE_COUNT_1_BIT;
+/*	By default, we will be using only one sample per pixel which is the same as no multisampling.
+	In that case the final image will remain unchanged. The exact maximum number of samples can
+	be extracted from VkPhysicalDeviceProperties associated with our selected physical device.
+	We're using a depth buffer so we have to take into account the sample count for both color
+	and depth. The highest sample count that is supported by both (&) will be the maximum we
+	can support. Add a function under generateMipmaps that will fetch the information. */
     VkDevice device;
 
     VkQueue graphicsQueue;
@@ -171,6 +205,14 @@ private:
     VkPipeline graphicsPipeline;
 
     VkCommandPool commandPool;
+	
+//	Class members for the render target
+	VkImage colorImage;
+	VkDeviceMemory colorImageMemory;
+	VkImageView colorImageView;
+/*	This new image will need to store the desired number of samples per pixel, so we need to 
+	pass this number to VkCreateImageInfo during the image creation process. Modify the 
+	createImage function by adding a numSamples parameter. */
 
     VkImage depthImage;
     VkDeviceMemory depthImageMemory;
@@ -417,6 +459,8 @@ private:
         for (const auto& device : devices) {
             if (isDeviceSuitable(device)) {
                 physicalDevice = device;
+		//	Call to getMaxUsableSampleCount function
+				msaaSamples = getMaxUseableSampleCount();
                 break;
             }
         }
@@ -425,6 +469,15 @@ private:
             throw std::runtime_error("failed to find a suitable GPU!");
         }
     }
+/*	In MSAA each pixel is sampled in an offscreen buffer which is then rendered to the screen.
+	This new buffer is a little different from the regular images we have been rendering. They
+	have been able to store more than sample per pixel. Once a multisampled buffer is created,
+	it has to be resolved to the default framebuffer. That is the reason why we must create an
+	additional render target and modify the current drawing process. We just need one render
+	target since only one drawing operation is active at time. Add the following class members:
+			VkImage colorImage, 
+			VkDeviceMemory colorImageMemory, 
+			VkImageView colorImageView */
 
     void createLogicalDevice() {
         QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
@@ -927,6 +980,24 @@ private:
 
         endSingleTimeCommands(commandBuffer);
     }
+	
+	VkSampleCountFlagBits getMaxUsableSampleCount() {
+		VkPhysicalDeviceProperties physicalDeviceProperties;
+		vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+		
+		VkSampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts & physicalDeviceProperties.limits.framebufferDepthSampleCounts;
+			if (counts & VK_SAMPLE_COUNT_64_BIT) {return VK_SAMPLE_COUNT_64_BIT;}
+			if (counts & VK_SAMPLE_COUNT_32_BIT) {return VK_SAMPLE_COUNT_32_BIT;}
+			if (counts & VK_SAMPLE_COUNT_16_BIT) {return VK_SAMPLE_COUNT_16_BIT;}
+			if (counts & VK_SAMPLE_COUNT_8_BIT) {return VK_SAMPLE_COUNT_8_BIT;}
+			if (counts & VK_SAMPLE_COUNT_4_BIT) {return VK_SAMPLE_COUNT_4_BIT;}
+			if (counts & VK_SAMPLE_COUNT_2_BIT) {return VK_SAMPLE_COUNT_2_BIT;}
+		
+			return VK_SAMPLE_COUNT_1_BIT;
+	/*	We will now use this function to set the msaaSamples variable during the physical device
+		selection process. For this we must modify the pickPhysicalDevice function. */
+			
+	}
 
     void createTextureImageView() {
         textureImageView = createImageView(textureImage, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
@@ -979,10 +1050,12 @@ private:
         return imageView;
     }
 
-    void createImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
+//	Added parameter numSamples
+    void createImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
+		imageInfo.samples = numSamples;
         imageInfo.extent.width = width;
         imageInfo.extent.height = height;
         imageInfo.extent.depth = 1;
