@@ -273,6 +273,7 @@ private:
         createDescriptorSetLayout();
         createGraphicsPipeline();
         createCommandPool();
+		createColorResources();
         createDepthResources();
         createFramebuffers();
         createTextureImage();
@@ -298,6 +299,10 @@ private:
     }
 
     void cleanupSwapChain() {
+		VkDestroyImageView(device, colorImageView, nullptr);
+		VkDestroyImage(device, colorImage, nullptr);
+		VkFreeMemory(device, colorImageMemory, nullptr);
+		
         vkDestroyImageView(device, depthImageView, nullptr);
         vkDestroyImage(device, depthImage, nullptr);
         vkFreeMemory(device, depthImageMemory, nullptr);
@@ -378,6 +383,8 @@ private:
         createSwapChain();
         createImageViews();
         createDepthResources();
+		createColorResources();
+	//	Now modify createRenderPass and update the color and depth attchment creation info structs
         createFramebuffers();
     }
 
@@ -586,24 +593,43 @@ private:
     void createRenderPass() {
         VkAttachmentDescription colorAttachment{};
         colorAttachment.format = swapChainImageFormat;
-        colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        colorAttachment.samples = msaaSamples;	// changed from VK_SAMPLE_COUNT_1_BIT
         colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; // changed from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 
         VkAttachmentDescription depthAttachment{};
         depthAttachment.format = findDepthFormat();
-        depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        depthAttachment.samples = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL; //	changed from  VK_SAMPLE_COUNT_1_BIT
         depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
+	/*	We have changed the finalLayout from VK_IMAGE_LAYOUT_PRESENT_SRC_KHR to 
+		VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. That is because multisampled images cannot
+		be presented directly. We have to resolve them to a regular image. This requirement does
+		not apply to the depth buffer since it will not be presented at any point. Therefore
+		we will have to add only one new attachment for color which is the so-called resolve
+		attachment: */
+		
+		VkAttachmentDescription colorAttachmentResolve{};
+		colorAttachmentResolve.format = swapChainImageFormat;
+        colorAttachmentResolve.samples = VK_SAMPLE_COUNT_1_BIT;
+        colorAttachmentResolve.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        colorAttachmentResolve.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        colorAttachmentResolve.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        colorAttachmentResolve.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        colorAttachmentResolve.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        colorAttachmentResolve.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	/*	The render pass now has to be instructed to resolve multisampled color images into 
+		regular attachment. Create a new attachment reference that will point to the color 
+		buffer which will serve as the resolve target. */
+		
         VkAttachmentReference colorAttachmentRef{};
         colorAttachmentRef.attachment = 0;
         colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -611,12 +637,21 @@ private:
         VkAttachmentReference depthAttachmentRef{};
         depthAttachmentRef.attachment = 1;
         depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		
+		VkAttachmentReference colorAttachmentResolveRef{};
+		colorAttachmentResolveRef.attachment = 2;
+		colorAttachmentResolveRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	/*	Set the pResolveAttachments subpass struct member to point to the newly created 
+		attachment reference. This is long enough to let the render pass define a multisample
+		resolve operation which will let us render the image to screen. */
 
         VkSubpassDescription subpass{};
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = 1;
         subpass.pColorAttachments = &colorAttachmentRef;
+		subpass.PResolveAttachments = &colorAttachmentResolveRef;
         subpass.pDepthStencilAttachment = &depthAttachmentRef;
+	//	Now update the render pass info struct with the new color attachment
 
         VkSubpassDependency dependency{};
         dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -626,7 +661,8 @@ private:
         dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-        std::array<VkAttachmentDescription, 2> attachments = {colorAttachment, depthAttachment};
+	//	Now modify createFramebuffers and add the new image view to the list
+        std::array<VkAttachmentDescription, 3> attachments = {colorAttachment, depthAttachment, colorAttachmentResolve};
         VkRenderPassCreateInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
@@ -722,7 +758,7 @@ private:
         VkPipelineMultisampleStateCreateInfo multisampling{};
         multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
         multisampling.sampleShadingEnable = VK_FALSE;
-        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        multisampling.rasterizationSamples = msaaSamples;
 
         VkPipelineDepthStencilStateCreateInfo depthStencil{};
         depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -792,12 +828,15 @@ private:
 
     void createFramebuffers() {
         swapChainFramebuffers.resize(swapChainImageViews.size());
-
+	//	Update VkImageView with colorImageView
         for (size_t i = 0; i < swapChainImageViews.size(); i++) {
-            std::array<VkImageView, 2> attachments = {
+            std::array<VkImageView, 3> attachments = {
                 swapChainImageViews[i],
                 depthImageView
+				colorImageView
             };
+	//	Now tell the graphics pipeline to use more than one sample by modifying createGraphicsPipeline	
+	
 
             VkFramebufferCreateInfo framebufferInfo{};
             framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -826,11 +865,24 @@ private:
             throw std::runtime_error("failed to create graphics command pool!");
         }
     }
+	
+	void createColorResources() {
+		VkFormat colorFormat = swapChainImageFormat;
+		
+		createImage(swapChainExtent.width, swapChainExtent.height, 1, msaaSamples, colorFormat,
+					VK_IMAGE_TILNG_OPTIMAL, VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, colorImage, colorImageMemory);
+		colorImageView = createImageView(colorImage, colorFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+	}
+	//	Modify createDepthResources and update the number of samples used by the depth buffer
+	//	Modify cleanupSwapChain and recreateSwapChain to take care of the new resources we created
+	
+	}
 
     void createDepthResources() {
         VkFormat depthFormat = findDepthFormat();
-	//	Update call to createImage with VK_SAMPLE_COUNT_1_BIT
-        createImage(swapChainExtent.width, swapChainExtent.height, 1, VK_SAMPLE_COUNT_1_BIT, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage, depthImageMemory);
+	//	Update call to createImage with msaaSamples
+        createImage(swapChainExtent.width, swapChainExtent.height, 1, msaaSamples, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, depthImage, depthImageMemory);
         depthImageView = createImageView(depthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
     }
 
@@ -1052,6 +1104,11 @@ private:
 
 //	Added parameter and imageInfo numSamples 
 //	Update all calls to this function using VK_SAMPLE_COUNT_1_BIT
+/*	We will now create a multisampled color buffer. Add a createColorResources function above
+	createDepthResources and note that we are using msaaSamples here as a function parameter
+	to createImage. We are also using only one mip level because this is enforced by the Vulkan
+	specfication in case of images with more than one sample per pixel. Also, this color buffer
+	does not need mipmaps since it's not going to be used as a texture. */
     void createImage(uint32_t width, uint32_t height, uint32_t mipLevels, VkSampleCountFlagBits numSamples, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory) {
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
