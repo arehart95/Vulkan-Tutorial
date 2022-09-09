@@ -21,7 +21,47 @@
 	
 	We need to first determine how many samples our hardware can use. Most modern GPUs support 
 	at least 8 samples but that number is not guaranteed to be the same everywhere. Add a new
-	class member to keep track of it. */
+	class member to keep track of it. 
+
+-----------------------------------------------------------------------------------------------------
+
+	Quality Improvements (to be read after completing multisampling):
+	There are certain limitations of the current MSAA implementation which may impact the quality
+	of the output image in more detailed scenes. For example, we're not solving potential problems
+	cause by shader aliasing. MSAA only smoothens out the edges of geometry but not the interior
+	filling. This may lead to a situation when you get a smooth polygon rendered on screen but
+	the applied texture will still look aliased if it contains high contrasting colors. One way
+	to approach this problem is to enable Sample Shading which will improve the image quality even
+	further, though at an additional performance cost:
+	
+		void createLogicalDevice() {
+			...
+			deviceFeatures.sampleRateShading = VK_TRUE; // enable sample shading feature for the device
+			...
+		}
+		
+		void createGraphicsPipeline() {
+			...
+			multisampling.sampleShadingEnable = VK_TRUE; // enable sample shading in the pipeline
+			multisampling.minSampleShading = .2f; // min fraction for sample shading; closer to one is smoother
+			...
+		}
+	
+	It has taken a lot of work to get here but now we finally have a good base for a Vulkan program!
+	The knowledge of the basic principles of Vulkan that we now have should be sufficient enough to
+	start exploring more of the features like:
+			Push constants
+			Instanced rendering
+			Dynamic uniforms
+			Separate images and sampler descriptors
+			Pipeline cache
+			Multi-threaded command buffer generation
+			Multiple subpasses
+			Compute shaders
+	This current program can be extended in many ways, like adding Blinn-Phong lighting, post-processing
+	effects, and shadow mapping. 
+	
+	Congratulations :) */
 
 
 #define GLFW_INCLUDE_VULKAN
